@@ -46,15 +46,34 @@ const botStateLabel: Record<DiscordDashboardData["bot"]["status"], string> = {
   degraded: "الاتصال يحتاج مراجعة الإعدادات",
 };
 
+function commandSyncDetails(bot: DiscordDashboardData["bot"]): string {
+  if (bot.commandSyncStatus === "synced") {
+    return bot.commandCount === null ? "تمت مزامنة أوامر Slash." : `تمت مزامنة ${bot.commandCount} أمراً في Discord.`;
+  }
+  if (bot.commandSyncStatus === "pending") return "جارٍ مزامنة أوامر Slash؛ حالة Gateway وحدها لا تؤكد توفرها.";
+  if (bot.commandSyncStatus === "failed") {
+    const knownCount = bot.commandCount === null ? "لا يوجد عدد مؤكد" : `آخر عدد مؤكد ${bot.commandCount}`;
+    return `تعذرت آخر مزامنة لأوامر Slash (${bot.commandSyncErrorCode ?? "unknown"})؛ ${knownCount}. ستعاد المحاولة عند الاتصال التالي.`;
+  }
+  return "لم تبدأ مزامنة أوامر Slash في هذه الجلسة.";
+}
+
 function botStatusDetails(bot: DiscordDashboardData["bot"]): string {
   if (bot.status === "ready") {
     const guildDetails = bot.guildCount === 0
       ? "البوت غير مضاف إلى أي سيرفر؛ أضفه إلى سيرفر تجريبي عبر رابط الدعوة."
       : `متصل في ${bot.guildCount} سيرفر.`;
-    const slashDetails = bot.lastErrorCode === "depth_zero_self_signed_cert"
-      ? "تعذر تسجيل أمر /systemix بسبب فشل التحقق من شهادة TLS؛ لم نعطل التحقق."
-      : bot.lastErrorCode ? "تعذر تسجيل أمر /systemix؛ راجع سجل الخدمة." : "";
-    return `${guildDetails} ${slashDetails} لا نطلب Message Content Intent.`.trim();
+    const slashDetails = commandSyncDetails(bot);
+    const gatewayError = bot.lastErrorCode && bot.lastErrorCode !== bot.commandSyncErrorCode
+      ? bot.lastErrorCode === "depth_zero_self_signed_cert" ? "تعذر تحقق TLS؛ لم نعطل التحقق من الشهادة." : "يوجد خطأ Gateway/REST إضافي؛ راجع سجل الخدمة."
+      : "";
+    const memberIntent = bot.memberIntentEnabled
+      ? "مراقبة انضمام الأعضاء متاحة عبر Guild Members Intent."
+      : "Guild Members Intent غير متاح؛ لن ندّعي مراقبة join/leave كاملة.";
+    const contentIntent = bot.messageContentIntentEnabled
+      ? "Message Content Intent متاح؛ قد تستخدمه قواعد الروابط والتكرار وفق إعدادات السيرفر."
+      : "Message Content Intent غير متاح؛ يبقى كشف معدل الرسائل، وتُقيّد قواعد النصوص التي تحتاج قراءة المحتوى.";
+    return `${guildDetails} ${slashDetails} ${gatewayError} ${memberIntent} ${contentIntent}`.trim();
   }
   if (bot.lastErrorCode === "bot_application_id_mismatch") {
     return "توكن البوت يعود إلى تطبيق Discord مختلف عن Application ID المعرّف؛ أوقفنا Gateway تلقائياً.";
@@ -62,7 +81,7 @@ function botStatusDetails(bot: DiscordDashboardData["bot"]): string {
   if (bot.lastErrorCode === "depth_zero_self_signed_cert") {
     return "تعذر الاتصال الآمن بـDiscord بسبب فشل التحقق من شهادة TLS في بيئة التشغيل. لم يتم تعطيل التحقق من الشهادات.";
   }
-  return "الاتصال الحي يحتاج Bot Token آمناً وتشغيلاً مستمراً؛ لا نعرضه كمتصل قبل تأكيد Ready من Discord.";
+  return `الاتصال الحي يحتاج Bot Token آمناً وتشغيلاً مستمراً؛ لا نعرضه كمتصل قبل تأكيد Ready من Discord. ${bot.commandSyncStatus === "failed" ? commandSyncDetails(bot) : ""}`.trim();
 }
 
 const severityLabel = { low: "معلومة", medium: "مراجعة", high: "عالية" } as const;
@@ -99,6 +118,9 @@ function errorText(error: unknown): string {
   switch (error.code) {
     case "discord_login_required": return "اربط حساب Discord أولاً.";
     case "discord_manage_server_required": return "لا يظهر هذا السيرفر ضمن السيرفرات التي تملك فيها صلاحية Manage Server.";
+    case "audit_precondition_failed": return "تعذر تسجيل الإجراء في سجل التدقيق؛ لم تُحفظ الإعدادات.";
+    case "settings_confirmation_required":
+    case "protect_confirmation_required": return "انتهت صلاحية التأكيد؛ راجع التغييرات وأكد الحفظ مجدداً.";
     case "bot_not_ready": return "بوت Discord غير متصل حالياً.";
     case "bot_not_installed": return "أضف البوت إلى السيرفر أولاً.";
     case "bot_manage_guild_permission_required": return "يحتاج البوت صلاحية Manage Server لتطبيق قاعدة AutoMod.";
@@ -183,13 +205,18 @@ export default function DiscordConnection({ connection, loading, dashboardError,
 
   const saveSettings = async () => {
     if (!selectedGuildId || !settings) return;
+    const confirmation = settings.mode === "protect" ? "ENABLE_PROTECTION" : "CONFIRM_SETTINGS";
+    const accepted = window.confirm(settings.mode === "protect"
+      ? "تأكيد حفظ إعدادات هذا السيرفر في نمط الحماية الفعّالة؟ قد تنفّذ الوحدات إجراءات تلقائية وفق إعداداتها."
+      : "تأكيد حفظ إعدادات هذا السيرفر في قاعدة Systemix؟ سيتم تسجيل التغيير قبل حفظه.");
+    if (!accepted) return;
     setSaving(true);
     try {
       const result = await discordApi.saveGuildSettings(selectedGuildId, {
         antiNuke: settings.antiNuke,
         antiRaid: settings.antiRaid,
         autoMod: settings.autoMod,
-      });
+      }, confirmation);
       setSettings(result.settings);
       setDirty(false);
       onNotice({ title: "حُفظت إعدادات السيرفر", detail: "الحفظ يحدّث قاعدة بيانات Systemix فقط؛ لا يغيّر Discord وحده.", kind: "success" });

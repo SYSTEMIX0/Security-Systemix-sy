@@ -86,6 +86,12 @@
 .module-status i { width:5px; height:5px; border-radius:50%; background:#8b978c; }
 .module-status-preview { color:#d2b476; border-color:rgba(237,189,117,.13); background:rgba(237,189,117,.045); }
 .module-status-preview i { background:#d8b66f; }
+.module-status-implemented { color:#b7e295; border-color:rgba(183,244,123,.16); background:rgba(183,244,123,.055); }
+.module-status-implemented i { background:#b7f47b; }
+.module-status-partial { color:#9fc7df; border-color:rgba(87,166,215,.16); background:rgba(87,166,215,.055); }
+.module-status-partial i { background:#87c5ed; }
+.module-status-planned { color:#d2b476; border-color:rgba(237,189,117,.13); background:rgba(237,189,117,.045); }
+.module-status-planned i { background:#d8b66f; }
 .module-card-meta { display:flex; align-items:center; gap:6px; margin-top:13px; }
 .module-card-meta span { padding:3px 6px; border-radius:5px; color:#92a295; background:rgba(192,218,202,.045); font-size:7px; }
 .module-card-meta span+span { color:#a5bf94; background:rgba(183,244,123,.05); }

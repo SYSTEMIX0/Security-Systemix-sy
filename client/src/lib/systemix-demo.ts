@@ -3,6 +3,7 @@ export type DashboardSection =
   | "connection"
   | "modules"
   | "protection"
+  | "community"
   | "delegation"
   | "incidents"
   | "logs"

@@ -11,6 +11,13 @@ const emptyData: DiscordDashboardData = {
     memberIntentEnabled: false,
     messageContentIntentEnabled: false,
     lastErrorCode: null,
+    commandCount: null,
+    commandSyncStatus: "not_started",
+    commandSyncErrorCode: null,
+    moduleCount: 0,
+    implementedModules: [],
+    totalModuleCount: 0,
+    pingMs: null,
   },
   oauthConfigured: false,
 };

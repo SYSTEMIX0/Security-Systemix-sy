@@ -16,6 +16,8 @@ export const monitoredAuditActionNames = new Map<number, string>([
   [AuditLogEvent.WebhookDelete, "webhook_delete"],
   [AuditLogEvent.BotAdd, "bot_add"],
   [AuditLogEvent.MessageBulkDelete, "message_bulk_delete"],
+  [AuditLogEvent.GuildUpdate, "guild_update"],
+  [AuditLogEvent.EmojiDelete, "emoji_delete"],
 ]);
 
 export type RaidSignalInput = {

@@ -1,12 +1,20 @@
 import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/discord/config";
+import type { GuildMeta } from "../../../shared/systemix-api";
 
 export type DiscordBotState = {
   status: "not_configured" | "disabled_by_policy" | "connecting" | "ready" | "degraded";
   readyAt: string | null;
   guildCount: number;
   memberIntentEnabled: boolean;
-  messageContentIntentEnabled: false;
+  messageContentIntentEnabled: boolean;
   lastErrorCode: string | null;
+  commandCount: number | null;
+  commandSyncStatus: "not_started" | "pending" | "synced" | "failed";
+  commandSyncErrorCode: string | null;
+  moduleCount: number;
+  implementedModules: string[];
+  totalModuleCount: number;
+  pingMs: number | null;
 };
 
 export type DiscordGuildChoice = {
@@ -82,11 +90,12 @@ async function csrfHeader(): Promise<Record<string, string>> {
 export const discordApi = {
   loadDashboard: () => readJson<DiscordDashboardData>("/api/discord/me"),
   loadGuildSettings: (guildId: string) => readJson<DiscordGuildSnapshot>(`/api/discord/guilds/${encodeURIComponent(guildId)}/settings`),
+  loadGuildMeta: (guildId: string) => readJson<GuildMeta>(`/api/discord/guilds/${encodeURIComponent(guildId)}/meta`),
   loadGuildEvents: (guildId: string) => readJson<{ events: DiscordSecurityEvent[] }>(`/api/discord/guilds/${encodeURIComponent(guildId)}/events?limit=30`),
-  async saveGuildSettings(guildId: string, patch: GuildSecurityPatch) {
-    return readJson<{ ok: true; settings: GuildSecurityConfig; mode: "observe" }>(
+  async saveGuildSettings(guildId: string, patch: GuildSecurityPatch, confirmation: "CONFIRM_SETTINGS" | "ENABLE_PROTECTION") {
+    return readJson<{ ok: true; settings: GuildSecurityConfig }>(
       `/api/discord/guilds/${encodeURIComponent(guildId)}/settings`,
-      { method: "PUT", headers: { "Content-Type": "application/json", ...(await csrfHeader()) }, body: JSON.stringify(patch) },
+      { method: "PUT", headers: { "Content-Type": "application/json", "x-systemix-confirm": confirmation, ...(await csrfHeader()) }, body: JSON.stringify(patch) },
     );
   },
   async applyAutoMod(guildId: string) {

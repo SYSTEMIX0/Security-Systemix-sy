@@ -24,6 +24,8 @@ import {
   Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import type { DiscordBotState } from "../lib/discord-api";
+import { getProductModuleReadiness } from "../lib/module-readiness";
 
 type ToastMessage = { title: string; detail?: string; kind?: "info" | "success" | "warning" };
 
@@ -240,9 +242,16 @@ const systemixInnovations = [
   { name: "جرد تكاملات موثوق", label: "INTEGRATION INVENTORY", detail: "قائمة للبوتات والويبهوكات المعروفة ومالكها وآخر تغيير ظاهر؛ تنبّه عند إضافة عنصر غير معتمد من دون ادعاء كشف كل تهديد." },
 ];
 
-export default function ModuleCenter({ onToast }: { onToast: (message: ToastMessage) => void }) {
+export default function ModuleCenter({ bot, selectedGuildName, botInstalled, onToast }: { bot: DiscordBotState; selectedGuildName: string | null; botInstalled: boolean; onToast: (message: ToastMessage) => void }) {
   const [filter, setFilter] = useState<ModuleCategory>("الكل");
   const [query, setQuery] = useState("");
+  const selectedGuildStatus = !selectedGuildName
+    ? bot.status === "ready" ? "Gateway متصل، لكن لم يُحدّد Guild في هذه الجلسة." : "لا يوجد Guild محدد؛ حالة البوت لا تعني أن أي خادم اختُبر."
+    : !botInstalled
+      ? `البوت غير مدعو إلى ${selectedGuildName}؛ لن تعمل وحداته فيه بعد.`
+      : bot.status === "ready"
+        ? `البوت مدعو إلى ${selectedGuildName} وGateway Ready؛ تفعيل كل وحدة وأذوناتها واختبارها يظل خاصاً بهذا Guild.`
+        : `البوت مدعو إلى ${selectedGuildName} لكن Gateway ليس Ready حالياً (${bot.status}).`;
   const visibleModules = useMemo(() => modules.filter((item) => {
     const matchesCategory = filter === "الكل" || item.category === filter;
     const searchable = `${item.name} ${item.english} ${item.description} ${item.capabilities.join(" ")}`.toLowerCase();
@@ -250,23 +259,24 @@ export default function ModuleCenter({ onToast }: { onToast: (message: ToastMess
   }), [filter, query]);
 
   return <>
-    <div className="module-preview-notice"><span className="module-preview-mark"><AlertTriangle size={17} /></span><div><strong>مركز الوحدات · تصميم المنتج</strong><span>هذه صفحة تخطيط ومعاينة للوحة؛ لا يوجد اتصال حي ببوت Discord، والوحدات المجتمعية لم تُنفذ بعد.</span></div><span className="module-preview-chip">PREVIEW</span></div>
+    <div className="module-preview-notice"><span className="module-preview-mark"><AlertTriangle size={17} /></span><div><strong>حالة المصدر والتشغيل</strong><span>{bot.moduleCount}/{bot.totalModuleCount} وحدة لها تنفيذ مصدري. {selectedGuildStatus} هذه الشارة تصف وجود الكود فقط، ولا تثبت إعداداً مفعلاً أو اختباراً ناجحاً في Discord.</span></div><span className="module-preview-chip">SOURCE STATUS</span></div>
     <div className="module-heading"><div><span className="eyebrow">SYSTEMIX MODULE CENTER</span><h1>كل مجتمع يحتاج منظومة.<br /><em>والحماية تأتي أولاً.</em></h1><p>وحدات متعددة تحت لوحة واحدة، مع صلاحيات واضحة وفصل بين الأمان والتفاعل.</p></div><div className="module-heading-mark"><ShieldAlert size={28} /><span>SECURITY<br />FIRST</span></div></div>
 
     <section className="module-priority-band" aria-label="أولوية المنتج"><div className="module-priority-icon"><ShieldCheck size={20} /></div><div><span>نواة المنتج · أولوية 01</span><strong>الدفاع والثقة يظلان مستقلين عن بقية الوحدات.</strong><small>لا تمنح نقاط النشاط أو أدوار الفعاليات أي امتياز أمني.</small></div><div className="module-priority-count"><b>03</b><small>خطوط دفاع مقترحة</small></div></section>
 
     <div className="module-toolbar"><div className="module-filter-list" role="group" aria-label="تصنيف الوحدات">{filters.map((item) => <button type="button" key={item} aria-pressed={filter === item} className={filter === item ? "module-filter-active" : ""} onClick={() => setFilter(item)}>{item}{item === "الكل" && <span>{modules.length}</span>}</button>)}</div><label className="module-search"><Activity size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث عن وحدة أو ميزة" aria-label="ابحث عن وحدة أو ميزة" /></label></div>
 
-    <div className="module-results-line"><span>مكتبة وحدات Systemix</span><small>{visibleModules.length} وحدة · كل الحالات للمعاينة أو التخطيط</small></div>
+    <div className="module-results-line"><span>مكتبة وحدات Systemix</span><small>{visibleModules.length} وحدة · الجاهزية محسوبة من كود البوت، لا من تفعيل Guild</small></div>
     <section className="module-grid" aria-label="وحدات Security Systemix">{visibleModules.map((item) => {
       const Icon = item.icon;
+      const readiness = getProductModuleReadiness(item.id, bot.implementedModules);
       return <article className={`module-card ${item.featured ? "module-card-featured" : ""}`} key={item.id}>
-        <div className="module-card-top"><span className={`module-icon module-icon-${item.tone}`}><Icon size={18} /></span><span className={`module-status ${item.status === "معاينة الواجهة" ? "module-status-preview" : ""}`}><i />{item.status}</span></div>
+        <div className="module-card-top"><span className={`module-icon module-icon-${item.tone}`}><Icon size={18} /></span><span className={`module-status module-status-${readiness.tone}`} title={readiness.detail}><i />{readiness.label}</span></div>
         <div className="module-card-meta"><span>{item.category}</span><span>{item.priority}</span></div>
         <h2>{item.name}</h2><span className="module-english">{item.english}</span><p className="module-description">{item.description}</p>
         <details className="module-details"><summary>قدرات الوحدة <span>{item.capabilities.length} عناصر</span><ChevronDown size={14} /></summary><ul>{item.capabilities.map((capability) => <li key={capability}><CheckCircle2 size={13} />{capability}</li>)}</ul></details>
         <div className="module-edge"><span className="module-edge-icon"><Sparkles size={14} /></span><div><small>لمسة Systemix</small><p>{item.systemixEdge}</p></div></div>
-        <button type="button" className="module-plan-button" onClick={() => onToast({ title: `${item.name} — حالة التخطيط`, detail: item.status === "معاينة الواجهة" ? "واجهة توضيحية فقط؛ تحتاج ربطاً وخدمة بوت قبل التنفيذ." : "وحدة ضمن نطاق المنتج، وليست مفعّلة في Discord حالياً.", kind: "warning" })}>عرض حالة الوحدة <ArrowUpLeft size={14} /></button>
+        <button type="button" className="module-plan-button" onClick={() => onToast({ title: `${item.name} — الجاهزية`, detail: readiness.detail, kind: readiness.tone === "implemented" ? "info" : "warning" })}>تفاصيل الجاهزية <ArrowUpLeft size={14} /></button>
       </article>;
     })}</section>
     {visibleModules.length === 0 && <div className="module-empty"><MessageSquareText size={23} /><strong>ما لقينا وحدة بهذا الاسم</strong><span>غيّر كلمة البحث أو اختر تصنيفاً آخر.</span></div>}

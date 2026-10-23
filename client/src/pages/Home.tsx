@@ -55,6 +55,7 @@ import {
 } from "lucide-react";
 import { discordLoginUrl } from "@/lib/discord-api";
 import { useDiscordDashboard } from "@/lib/use-discord-dashboard";
+import ProtectionConsole from "@/components/ProtectionConsole";
 import {
   chartValues,
   demoAuditLogs,
@@ -70,6 +71,7 @@ import {
 
 const ModuleCenter = lazy(() => import("@/components/ModuleCenter"));
 const DiscordConnection = lazy(() => import("@/components/DiscordConnection"));
+const CommunityConsole = lazy(() => import("@/components/CommunityConsole"));
 
 type IconType = typeof ShieldCheck;
 
@@ -95,6 +97,10 @@ const navGroups: { label: string; items: { id: DashboardSection; label: string; 
     ],
   },
   {
+    label: "المجتمع",
+    items: [{ id: "community", label: "إدارة المجتمع", icon: Users, badge: "5" }],
+  },
+  {
     label: "الإدارة",
     items: [
       { id: "connection", label: "ربط Discord", icon: Radio },
@@ -110,6 +116,7 @@ const sectionMeta: Record<DashboardSection, { title: string; subtitle: string }>
   connection: { title: "ربط Discord", subtitle: "تحقق من الحساب والخادم وصلاحيات البوت الحقيقية." },
   modules: { title: "مركز الوحدات", subtitle: "وحدات كثيرة لمجتمعك — والحماية أولاً دائماً." },
   protection: { title: "قواعد الحماية", subtitle: "اضبط طبقات الدفاع وحدود الاستجابة لكل نوع تهديد." },
+  community: { title: "إدارة المجتمع", subtitle: "إعدادات الدعم والترحيب والتفاعل — مع توضيح ما هو محفوظ وما لم يُنفذ بعد." },
   delegation: { title: "تفويض الصلاحيات", subtitle: "امنح كل عضو القدر الذي يحتاجه فقط — ولا أكثر." },
   incidents: { title: "مركز الحوادث", subtitle: "كل إشارة مهمة، في سياق واحد قابل للمراجعة." },
   logs: { title: "سجل التدقيق", subtitle: "سجل زمني واضح لما حدث ومن نفّذه." },
@@ -664,6 +671,7 @@ function Toast({ message, onClose }: { message: ToastMessage; onClose: () => voi
 
 function SystemixDashboard() {
   const discordConnection = useDiscordDashboard();
+  const selectedGuild = discordConnection.data.guilds.find((guild) => guild.id === discordConnection.selectedGuildId) ?? null;
   const [active, setActive] = useState<DashboardSection>("overview");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [panicOpen, setPanicOpen] = useState(false);
@@ -690,8 +698,13 @@ function SystemixDashboard() {
   const renderSection = () => {
     switch (active) {
       case "connection": return <Suspense fallback={<div className="panel discord-loading">جار تحميل ربط Discord...</div>}><DiscordConnection connection={discordConnection.data} loading={discordConnection.loading} dashboardError={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onSelectGuild={discordConnection.selectGuild} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onNotice={notify} /></Suspense>;
-      case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter onToast={notify} /></Suspense>;
-      case "protection": return <ProtectionPage onToast={notify} />;
+      case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter bot={discordConnection.data.bot} selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} onToast={notify} /></Suspense>;
+      case "protection": return discordConnection.selectedGuildId
+        ? <ProtectionConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} />
+        : <ProtectionPage onToast={notify} />;
+      case "community": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جار تحميل إدارة المجتمع...</div>}><CommunityConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} /></Suspense>
+        : <div className="panel"><p>اربط حساب Discord واختر سيرفراً لعرض إعدادات المجتمع الحقيقية.</p><button className="button button-primary" onClick={() => setActive("connection")}>ربط Discord</button></div>;
       case "delegation": return <DelegationPage onToast={notify} />;
       case "incidents": return <IncidentPage onToast={notify} />;
       case "logs": return <LogsPage onToast={notify} />;
