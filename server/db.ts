@@ -10,6 +10,7 @@ import {
 } from "../drizzle/schema";
 import type { GuildSecurityConfig } from "./discord/config";
 import { ENV } from "./_core/env";
+import { normalizeDatabaseUrl } from "./_core/databaseUrl";
 
 const monitoredAntiNukeEventTypes = [
   "anti_nuke:channel_create",
@@ -46,7 +47,7 @@ function cacheGuildSettings(guildId: string, row: GuildSecuritySettingsRow | und
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _db = drizzle(normalizeDatabaseUrl(process.env.DATABASE_URL));
     } catch (error) {
       console.warn("[Database] Failed to connect:", error instanceof Error ? error.name : "unknown");
       _db = null;
