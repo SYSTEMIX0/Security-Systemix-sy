@@ -20,6 +20,8 @@ const emptyData: DiscordDashboardData = {
     pingMs: null,
   },
   oauthConfigured: false,
+  databaseConfigured: false,
+  sessionKeyConfigured: false,
 };
 
 export function useDiscordDashboard() {

@@ -72,6 +72,7 @@ import {
 const ModuleCenter = lazy(() => import("@/components/ModuleCenter"));
 const DiscordConnection = lazy(() => import("@/components/DiscordConnection"));
 const CommunityConsole = lazy(() => import("@/components/CommunityConsole"));
+const BotOperationsPage = lazy(() => import("@/components/BotOperationsPage"));
 
 type IconType = typeof ShieldCheck;
 
@@ -104,6 +105,7 @@ const navGroups: { label: string; items: { id: DashboardSection; label: string; 
     label: "الإدارة",
     items: [
       { id: "connection", label: "ربط Discord", icon: Radio },
+      { id: "operations", label: "مركز تشغيل البوت", icon: Bot },
       { id: "team", label: "الفريق والصلاحيات", icon: Users },
       { id: "plans", label: "التراخيص والباقات", icon: Sparkles },
       { id: "settings", label: "إعدادات النظام", icon: Settings2 },
@@ -125,6 +127,7 @@ const sectionMeta: Record<DashboardSection, { title: string; subtitle: string }>
   team: { title: "الفريق والصلاحيات", subtitle: "نظرة على وصول فريقك وصلاحياته." },
   plans: { title: "التراخيص والباقات", subtitle: "مساحة جاهزة لإدارة التراخيص على مستوى الخادم." },
   settings: { title: "إعدادات النظام", subtitle: "التنبيهات، اللغة، والسلوك الافتراضي." },
+  operations: { title: "مركز تشغيل البوت", subtitle: "حالة Gateway الحقيقية ومتطلبات التشغيل، دون كشف أسرار." },
 };
 
 function BrandMark({ small = false }: { small?: boolean }) {
@@ -699,6 +702,7 @@ function SystemixDashboard() {
     switch (active) {
       case "connection": return <Suspense fallback={<div className="panel discord-loading">جار تحميل ربط Discord...</div>}><DiscordConnection connection={discordConnection.data} loading={discordConnection.loading} dashboardError={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onSelectGuild={discordConnection.selectGuild} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onNotice={notify} /></Suspense>;
       case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter bot={discordConnection.data.bot} selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} onToast={notify} /></Suspense>;
+      case "operations": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز تشغيل البوت...</div>}><BotOperationsPage data={discordConnection.data} loading={discordConnection.loading} error={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onRefresh={discordConnection.refresh} onNavigate={setActive} /></Suspense>;
       case "protection": return discordConnection.selectedGuildId
         ? <ProtectionConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} />
         : <ProtectionPage onToast={notify} />;

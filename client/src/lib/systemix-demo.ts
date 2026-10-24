@@ -8,6 +8,7 @@ export type DashboardSection =
   | "incidents"
   | "logs"
   | "backups"
+  | "operations"
   | "team"
   | "plans"
   | "settings"

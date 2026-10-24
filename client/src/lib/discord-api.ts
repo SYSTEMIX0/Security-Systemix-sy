@@ -30,6 +30,8 @@ export type DiscordDashboardData = {
   guilds: DiscordGuildChoice[];
   bot: DiscordBotState;
   oauthConfigured: boolean;
+  databaseConfigured: boolean;
+  sessionKeyConfigured: boolean;
 };
 
 export type DiscordGuildSnapshot = {

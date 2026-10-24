@@ -35,7 +35,7 @@ export function registerDiscordRoutes(app: Express): void {
     try {
       const session = await getActiveDiscordSession(req, res);
       if (!session) {
-        res.json({ user: null, guilds: [], bot: getDiscordBotState(), oauthConfigured: Boolean(discordClientSecret()) });
+        res.json({ user: null, guilds: [], bot: getDiscordBotState(), oauthConfigured: Boolean(discordClientSecret()), databaseConfigured: Boolean(process.env.DATABASE_URL?.trim()), sessionKeyConfigured: Boolean(process.env.MANUS_JWT_SECRET?.trim()) });
         return;
       }
       const managedGuilds = await listManagedDiscordGuilds(session);
@@ -51,6 +51,8 @@ export function registerDiscordRoutes(app: Express): void {
         })),
         bot: getDiscordBotState(),
         oauthConfigured: Boolean(discordClientSecret()),
+        databaseConfigured: Boolean(process.env.DATABASE_URL?.trim()),
+        sessionKeyConfigured: Boolean(process.env.MANUS_JWT_SECRET?.trim()),
       });
     } catch (error) {
       apiError(res, error);
