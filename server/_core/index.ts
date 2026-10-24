@@ -6,6 +6,8 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerDiscordRoutes } from "../discord/routes";
 import { startDiscordBot, stopDiscordBot } from "../discord/bot";
 import { publicPlatformScript } from "./publicConfig";
+import { runStartupMigrations } from "./migrations";
+import { logStartupReport } from "./startupReport";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
@@ -39,9 +41,11 @@ async function startServer() {
 
   const port = Number(process.env.PORT || "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
+  await runStartupMigrations();
   server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);
+    logStartupReport();
     void startDiscordBot();
   });
   const shutdown = () => { void stopDiscordBot().finally(() => server.close()); };

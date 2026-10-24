@@ -52,6 +52,17 @@ Security Systemix بوت Discord فقط؛ لا يتكامل مع FiveM. الكو
 
 راجع [`.env.example`](./.env.example). لا تحفظ `.env` أو Client Secret أو Bot Token في المستودع. في WebDev استخدم إدخال الأسرار الآمن. أبقِ `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` و`SYSTEMIX_ENABLE_GUILD_MEMBERS_INTENT` على الوضع الآمن ما لم تكن شروط التفعيل المذكورة أعلاه متحققة.
 
+## التشغيل على Render
+
+عند كل تشغيل يطبع السجل أسطراً تبدأ بـ`[Systemix]` توضح ما هو جاهز وما هو ناقص، دون طباعة أي قيمة سرية. مثال: `Database: missing DATABASE_URL` يعني أن حفظ الإعدادات وسجل التدقيق متوقف حتى إضافة قاعدة البيانات.
+
+- `DISCORD_CLIENT_SECRET` و`DISCORD_BOT_TOKEN`: من تطبيق Discord نفسه.
+- `DISCORD_REDIRECT_URI`: `https://security-systemix-sy.onrender.com/api/discord/callback` ويُضاف حرفياً في Discord → OAuth2 → Redirects.
+- `MANUS_JWT_SECRET`: قيمة عشوائية من زر **Generate**؛ بدونها يفشل إكمال ربط Discord.
+- `DATABASE_URL`: رابط MySQL حقيقي فقط. مع `SYSTEMIX_AUTO_MIGRATE=true` ينشئ الخادم الجداول تلقائياً عند التشغيل.
+- `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=true`: بعد تجهيز قاعدة البيانات فقط. الخطة المجانية في Render قد تنام بعد 15 دقيقة بلا زيارات، فينقطع البوت.
+- `MANUS_OAUTH_API_URL`: غير مطلوب على Render؛ يخص تسجيل دخول Manus الاختياري فقط.
+
 ## مراجع Discord الرسمية
 
 - [OAuth2](https://docs.discord.com/developers/topics/oauth2)

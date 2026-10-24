@@ -29,13 +29,12 @@ const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
 const GET_USER_INFO_WITH_JWT_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfoWithJwt`;
 
 class OAuthService {
-  constructor(private client: ReturnType<typeof axios.create>) {
-    console.log("[OAuth] Initialized with baseURL:", ENV.oAuthServerUrl);
-    if (!ENV.oAuthServerUrl) {
-      console.error(
-        "[OAuth] ERROR: MANUS_OAUTH_API_URL is not configured! Set MANUS_OAUTH_API_URL environment variable."
-      );
-    }
+  // Manus account login is optional for Security Systemix: Discord OAuth is the
+  // dashboard login. Hosts without Manus OAuth (for example Render) skip it.
+  constructor(private client: ReturnType<typeof axios.create>) {}
+
+  private requireConfigured(): void {
+    if (!ENV.oAuthServerUrl) throw new Error("Manus account login is not configured on this host");
   }
 
   private decodeState(state: string): string {
@@ -46,6 +45,7 @@ class OAuthService {
     code: string,
     state: string
   ): Promise<ExchangeTokenResponse> {
+    this.requireConfigured();
     const payload: ExchangeTokenRequest = {
       clientId: ENV.appId,
       grantType: "authorization_code",
@@ -64,6 +64,7 @@ class OAuthService {
   async getUserInfoByToken(
     token: ExchangeTokenResponse
   ): Promise<GetUserInfoResponse> {
+    this.requireConfigured();
     const { data } = await this.client.post<GetUserInfoResponse>(
       GET_USER_INFO_PATH,
       {
@@ -200,10 +201,8 @@ class SDKServer {
   async verifySession(
     cookieValue: string | undefined | null
   ): Promise<{ openId: string; appId: string; name: string } | null> {
-    if (!cookieValue) {
-      console.warn("[Auth] Missing session cookie");
-      return null;
-    }
+    // A visitor without a Manus session is the normal logged-out state.
+    if (!cookieValue) return null;
 
     try {
       const secretKey = this.getSessionSecret();
@@ -235,6 +234,7 @@ class SDKServer {
   async getUserInfoWithJwt(
     jwtToken: string
   ): Promise<GetUserInfoWithJwtResponse> {
+    if (!ENV.oAuthServerUrl) throw new Error("Manus account login is not configured on this host");
     const payload: GetUserInfoWithJwtRequest = {
       jwtToken,
       projectId: ENV.appId,
