@@ -39,5 +39,6 @@ describe("privacy-conscious logging switches", () => {
   it("keeps a unique Systemix logs command when an old /logs command exists", async () => {
     const source = await readFile("server/discord/modules/logging.ts", "utf8");
     expect(source).toContain('logsCommand("systemix-logs")');
+    expect(source).toContain('interaction.commandName === "logs"');
   });
 });

@@ -104,7 +104,7 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   }
   const me = interaction.guild.members.me;
   if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
-    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /logs setup.");
+    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /systemix-logs setup.");
   }
   try {
     // The audit precondition is intentionally completed before creating any channels.
@@ -187,12 +187,14 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   } catch {
     await Promise.allSettled(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix log setup")));
     if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix log setup").catch(() => undefined);
-    return respond(interaction, "لم يكتمل إعداد اللوقات. راجع صلاحيات Manage Channels وSend Messages ثم أعد /logs setup؛ نُظفت القنوات الجديدة إن أمكن.");
+    return respond(interaction, "لم يكتمل إعداد اللوقات. راجع صلاحيات Manage Channels وSend Messages ثم أعد /systemix-logs setup؛ نُظفت القنوات الجديدة إن أمكن.");
   }
 }
 
 async function handleCommand(interaction: LogCommandInteraction): Promise<void> {
-  if (interaction.options.getSubcommand() === "setup") await setupLogs(interaction);
+  // An older `/logs channel` registration can remain visible briefly in Discord clients.
+  // Treat it as the safe setup request too, rather than ignoring the owner's command.
+  if (interaction.commandName === "logs" || interaction.commandName === "systemix-logs") await setupLogs(interaction);
 }
 
 async function onMemberAdd(member: GuildMember): Promise<void> {
