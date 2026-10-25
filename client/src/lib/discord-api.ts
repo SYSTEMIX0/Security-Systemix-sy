@@ -72,6 +72,12 @@ export type OwnerGuildProvision = {
   confirmation: "PROVISION_GUILD_CHANNELS";
 };
 
+/** Owner-only candidates sourced from the currently connected Discord bot. */
+export type OwnerBotGuild = {
+  id: string;
+  name: string;
+};
+
 export type RuntimeReadiness = {
   ready: boolean;
   status: "ready" | "not_ready";
@@ -212,6 +218,7 @@ export const discordApi = {
   loadOwnerStatus: () => readJson<OwnerPanelStatus>("/api/owner/status"),
   loadOwnerOverview: () => readJson<OwnerPanelOverview>("/api/owner/overview"),
   loadOwnerSubscriptions: () => readJson<{ subscriptions: OwnerSubscription[] }>("/api/owner/subscriptions"),
+  loadOwnerBotGuilds: () => readJson<{ guilds: OwnerBotGuild[] }>("/api/owner/guilds"),
   loadReadiness: async () => normalizeRuntimeReadiness(await readJson<RuntimeReadinessPayload>("/api/ready", undefined, [503])),
   async loginOwner(password: string) {
     return readJson<{ authenticated: true }>("/api/owner/login", {

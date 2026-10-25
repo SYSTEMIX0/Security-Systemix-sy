@@ -22,6 +22,7 @@ import {
   DiscordApiError,
   type OwnerPanelOverview,
   type OwnerPanelStatus,
+  type OwnerBotGuild,
   type OwnerSubscription,
   type DiscordGuildChoice,
   type RuntimeReadiness,
@@ -105,6 +106,7 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
   const [overview, setOverview] = useState<OwnerPanelOverview | null>(null);
   const [readiness, setReadiness] = useState<RuntimeReadiness | null>(null);
   const [subscriptions, setSubscriptions] = useState<OwnerSubscription[]>([]);
+  const [provisionGuilds, setProvisionGuilds] = useState<OwnerBotGuild[]>([]);
   const [password, setPassword] = useState("");
   const [subscriptionGuildId, setSubscriptionGuildId] = useState("");
   const [provisionGuildId, setProvisionGuildId] = useState("");
@@ -124,18 +126,25 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
       const nextStatus = await discordApi.loadOwnerStatus();
       setStatus(nextStatus);
       if (nextStatus.authenticated) {
-        const [nextOverview, nextReadiness, nextSubscriptions] = await Promise.all([
+        const [nextOverview, nextReadiness, nextSubscriptions, nextProvisionGuilds] = await Promise.all([
           discordApi.loadOwnerOverview(),
           discordApi.loadReadiness(),
           discordApi.loadOwnerSubscriptions(),
+          discordApi.loadOwnerBotGuilds(),
         ]);
         setOverview(nextOverview);
         setReadiness(nextReadiness);
         setSubscriptions(nextSubscriptions.subscriptions);
+        setProvisionGuilds(nextProvisionGuilds.guilds);
+        setProvisionGuildId((current) => {
+          if (current && nextProvisionGuilds.guilds.some((guild) => guild.id === current)) return current;
+          return nextProvisionGuilds.guilds.length === 1 ? nextProvisionGuilds.guilds[0].id : "";
+        });
       } else {
         setOverview(null);
         setReadiness(null);
         setSubscriptions([]);
+        setProvisionGuilds([]);
       }
     } catch (requestError) {
       setError(failureText(requestError));
@@ -380,7 +389,7 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
           <section className="panel owner-provision-panel">
             <div className="owner-panel-heading"><div><h2>إعداد قنوات السيرفر</h2><p>بديل مباشر وآمن عن أوامر Slash: ينشئ القنوات الناقصة فقط في سيرفر مثبت فيه البوت، ويسجل تدقيقاً قبل أي إنشاء.</p></div><Bot size={18} /></div>
             <div className="owner-subscription-form">
-              <label>السيرفر<select value={provisionGuildId} onChange={(event) => setProvisionGuildId(event.currentTarget.value)}><option value="">اختر سيرفراً مثبتاً فيه البوت</option>{manageableGuilds.filter((guild) => guild.botInstalled).map((guild) => <option key={guild.id} value={guild.id}>{guild.name}</option>)}</select></label>
+              <label>السيرفر<select value={provisionGuildId} onChange={(event) => setProvisionGuildId(event.currentTarget.value)}><option value="">اختر سيرفراً مثبتاً فيه البوت</option>{provisionGuilds.map((guild) => <option key={guild.id} value={guild.id}>{guild.name}</option>)}</select></label>
               <div className="owner-provision-actions">
                 <button type="button" className="button button-secondary" disabled={submitting || !provisionGuildId} onClick={() => requestGuildProvision("logs")}><Database size={15} /> إعداد اللوقات</button>
                 <button type="button" className="button button-primary" disabled={submitting || !provisionGuildId} onClick={() => requestGuildProvision("tickets")}><ShieldCheck size={15} /> إعداد التذاكر</button>

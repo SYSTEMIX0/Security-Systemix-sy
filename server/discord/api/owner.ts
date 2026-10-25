@@ -131,6 +131,21 @@ export function registerOwnerApi(app: Express): void {
       },
     });
   }));
+  app.get("/api/owner/guilds", asyncRoute(async (req, res) => {
+    const session = await requireOwnerSession(req, res);
+    if (!session) return;
+    const client = getDiscordClient();
+    if (!client || getDiscordBotState().status !== "ready") {
+      res.status(409).json({ error: "owner_guild_provision_unavailable" });
+      return;
+    }
+    // This endpoint is owner-only. It derives candidates from the active bot
+    // connection rather than an OAuth guild list that can be stale after an invite.
+    const guilds = [...client.guilds.cache.values()]
+      .map((guild) => ({ id: guild.id, name: guild.name }))
+      .sort((left, right) => left.name.localeCompare(right.name, "ar"));
+    res.json({ guilds });
+  }));
   app.get("/api/owner/subscriptions", asyncRoute(async (req, res) => {
     const session = await requireOwnerSession(req, res);
     if (!session) return;
