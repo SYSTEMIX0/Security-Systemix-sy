@@ -56,6 +56,7 @@ import {
 import { discordLoginUrl } from "@/lib/discord-api";
 import { useDiscordDashboard } from "@/lib/use-discord-dashboard";
 import ProtectionConsole from "@/components/ProtectionConsole";
+import { LiveOverview, RuntimeStatusBanner } from "@/components/RuntimeStatus";
 import {
   chartValues,
   demoAuditLogs,
@@ -154,7 +155,7 @@ function PreviewBanner({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`preview-banner ${compact ? "preview-banner-compact" : ""}`}>
       <span className="preview-dot" />
-      <span><strong>معاينة تجريبية</strong>{compact ? " · هذه الوحدة لا تتصل بـDiscord" : " — بيانات هذه الوحدة وتفاعلاتها للعرض فقط ولا تغيّر Discord. استخدم صفحة ربط Discord للميزات الحية المتاحة."}</span>
+      <span><strong>بيانات نموذجية للعرض فقط</strong>{compact ? " · لا تحفظ أو تغيّر Discord" : " — الأرقام والتفاعلات في هذه الصفحة ليست من سيرفرك ولا تحفظ إعدادات Discord. حالة اتصال البوت الحقيقية تظهر في شريط النظام أعلى الصفحة."}</span>
       {!compact && <span className="preview-banner-tag"><Cloud size={13} /> وضع العرض</span>}
     </div>
   );
@@ -703,6 +704,9 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
   };
   const renderSection = () => {
     switch (active) {
+      case "overview": return selectedGuild?.botInstalled && discordConnection.data.bot.status === "ready"
+        ? <OverviewPage onSection={setActive} onToast={notify} emergency={emergency} onPanic={() => setPanicOpen(true)} />
+        : <LiveOverview data={discordConnection.data} readiness={discordConnection.readiness} selectedGuild={selectedGuild} loading={discordConnection.loading} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onOperations={() => setActive("operations")} />;
       case "connection": return <Suspense fallback={<div className="panel discord-loading">جار تحميل ربط Discord...</div>}><DiscordConnection connection={discordConnection.data} loading={discordConnection.loading} dashboardError={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onSelectGuild={discordConnection.selectGuild} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onNotice={notify} /></Suspense>;
       case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter bot={discordConnection.data.bot} selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} onToast={notify} /></Suspense>;
       case "operations": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز تشغيل البوت...</div>}><BotOperationsPage data={discordConnection.data} loading={discordConnection.loading} error={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onRefresh={discordConnection.refresh} onNavigate={setActive} /></Suspense>;
@@ -728,7 +732,7 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
     <Sidebar active={active} onSelect={setActive} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} selectedGuildName={discordConnection.data.guilds.find((guild) => guild.id === discordConnection.selectedGuildId)?.name ?? null} manageableGuildCount={discordConnection.data.guilds.length} discordUsername={discordConnection.data.user?.username ?? null} />
     <main className="main-shell">
       <Topbar active={active} connection={discordConnection.data} onConnect={connectDiscord} onMenu={() => setMobileOpen(true)} onNotify={() => notify({ title: "لا توجد تنبيهات حية", detail: "بيانات التنبيهات الحالية تجريبية." })} />
-      <div className="main-content">{renderSection()}<footer className="page-footer"><span>© 2026 Security Systemix</span><span><i /> طبقة الحماية لديسكورد فقط</span><button onClick={() => setActive("settings")}>الخصوصية والأمان <ArrowUpLeft size={12} /></button></footer></div>
+      <div className="main-content"><RuntimeStatusBanner data={discordConnection.data} readiness={discordConnection.readiness} onDetails={() => setActive("operations")} />{renderSection()}<footer className="page-footer"><span>© 2026 Security Systemix</span><span><i /> طبقة الحماية لديسكورد فقط</span><button onClick={() => setActive("settings")}>الخصوصية والأمان <ArrowUpLeft size={12} /></button></footer></div>
     </main>
     {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     {panicOpen && <Dialog title="تشغيل وضع الطوارئ؟" danger onClose={() => setPanicOpen(false)}>

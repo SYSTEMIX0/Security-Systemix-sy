@@ -16,9 +16,9 @@
 
 ## موانع التشغيل والإعلان عن الحماية الكاملة
 
-1. **قاعدة البيانات:** إعداد `DATABASE_URL` في خدمة Render غير موجود وفق آخر لقطة إعداد أرسلها المستخدم. لا تضع قيمة عشوائية؛ يلزم رابط MySQL حقيقي مع بيانات الاستضافة الصحيحة. بعد إضافته، `SYSTEMIX_AUTO_MIGRATE=true` يطلب من التطبيق إنشاء جداول Systemix، ولا ينشئ قاعدة البيانات نفسها.
+1. **قاعدة البيانات:** `/api/ready` المنشور يعيد `503 database_unavailable` مع `migration: missing_database` و`migrationMode: automatic`. يلزم رابط MySQL حقيقي في `DATABASE_URL`؛ لا تضع قيمة عشوائية. الهجرة التلقائية مهيأة لإنشاء جداول Systemix بعد توفر القاعدة، لكنها لا تنشئ خدمة القاعدة نفسها.
 2. **Gateway:** يبقى بوت الإنتاج متوقفاً عمداً حتى تصبح `/api/ready` بحالة `ready` ثم يُختبر على سيرفر تجريبي. لا تفعّل `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=true` قبل ذلك.
-3. **لوحة المالك:** يلزم ضبط `SYSTEMIX_OWNER_DISCORD_IDS` بمعرّف Discord الصحيح و`SYSTEMIX_OWNER_PASSWORD_HASH` من داخل Render. استخدم الإرشادات في [`DISCORD-SETUP.md`](./DISCORD-SETUP.md)؛ لا ترسل كلمة المرور أو hash في المحادثة.
+3. **لوحة المالك:** آخر فحص آمن لـ`/api/owner/status` يؤكد `configured: true` بعد إضافة السر وقائمة السماح. `authenticated: false` لأن لا توجد جلسة Discord OAuth في فحص الخدمة؛ يلزم تجربة تسجيل الدخول بحساب ضمن القائمة. لا ترسل كلمة المرور أو hash في المحادثة.
 4. **اختبار Discord:** ما زال اختبار تسجيل OAuth الفعلي، تثبيت البوت، مزامنة Slash، الصلاحيات، Intents، وحدات الحماية والتراجع على سيرفر تملكه غير منجز.
 5. **التوفر:** خدمة Render الحالية `Security-Systemix-sy` على الخطة Free حسب لوحة Render. وفق [توثيق Render Free](https://render.com/docs/free)، خدمات الويب المجانية تتوقف عند الخمول؛ لذلك لا تُقدَّم كخدمة Gateway تعمل 24/7. لم تتم ترقية أي خدمة مدفوعة.
 

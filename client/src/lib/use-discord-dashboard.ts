@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { discordApi, type DiscordDashboardData } from "./discord-api";
+import { discordApi, type DiscordDashboardData, type RuntimeReadiness } from "./discord-api";
 
 const emptyData: DiscordDashboardData = {
   user: null,
@@ -26,6 +26,7 @@ const emptyData: DiscordDashboardData = {
 
 export function useDiscordDashboard() {
   const [data, setData] = useState<DiscordDashboardData>(emptyData);
+  const [readiness, setReadiness] = useState<RuntimeReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedGuildId, setSelectedGuildIdState] = useState(() => {
@@ -36,7 +37,13 @@ export function useDiscordDashboard() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await discordApi.loadDashboard();
+      const [dashboardResult, readinessResult] = await Promise.allSettled([
+        discordApi.loadDashboard(),
+        discordApi.loadReadiness(),
+      ]);
+      setReadiness(readinessResult.status === "fulfilled" ? readinessResult.value : null);
+      if (dashboardResult.status === "rejected") throw dashboardResult.reason;
+      const next = dashboardResult.value;
       setData(next);
       setError(null);
       setSelectedGuildIdState((current) => {
@@ -70,5 +77,5 @@ export function useDiscordDashboard() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  return { data, loading, error, refresh, selectedGuildId, selectGuild };
+  return { data, readiness, loading, error, refresh, selectedGuildId, selectGuild };
 }
