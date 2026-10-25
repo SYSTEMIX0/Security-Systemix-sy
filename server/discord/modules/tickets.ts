@@ -232,6 +232,11 @@ function findTicketCenter(guild: Parameters<NonNullable<SystemixModule["onComman
   return findTextChannel(guild, categoryId, TICKET_CENTER_CHANNEL_NAME);
 }
 
+/** A just-invited bot can have an empty member cache despite valid Discord permissions. */
+async function resolveBotMember(guild: Guild): Promise<GuildMember | null> {
+  return guild.members.me ?? guild.members.fetchMe().catch(() => null);
+}
+
 function containsTicketTrigger(message: Pick<Message<true>, "components">): boolean {
   return message.components.some((row) => "components" in row
     && Array.isArray(row.components)
@@ -288,7 +293,7 @@ async function handleCommand(interaction: Parameters<NonNullable<SystemixModule[
   const mayManagePanels = member.id === interaction.guild.ownerId || member.permissions.has(PermissionFlagsBits.ManageGuild) || isStaffMember(member, config);
   if (!mayManagePanels) return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو فريق الدعم.");
   if (subcommand !== "panel") return respond(interaction, "الأمر غير متاح.");
-  const category = findPanelCategory(interaction.guild, interaction.guild.members.me);
+  const category = findPanelCategory(interaction.guild, await resolveBotMember(interaction.guild));
   if (!category) return respond(interaction, "لا توجد قنوات لوحات التذاكر بعد. استخدم /ticket setup أولاً.");
   if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
 
@@ -328,7 +333,7 @@ async function setupTicketSystem(
     return respond(interaction, "تعذر توثيق عملية الإعداد في سجل التدقيق؛ لم يتم إنشاء أي قناة.");
   }
 
-  const me = interaction.guild.members.me;
+  const me = await resolveBotMember(interaction.guild);
   if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
     return respond(interaction, "لا يملك البوت حالياً View Channel وManage Channels وSend Messages. أعطه هذه الصلاحيات ثم أعد /ticket setup.");
   }
@@ -411,7 +416,7 @@ export type TicketProvisionResult = { createdPanels: number; createdSupportRole:
 
 /** Owner-panel equivalent of `/systemix-tickets setup`; it creates no privilege-bearing role. */
 export async function provisionTicketsForGuild(guild: Guild, actorId: string): Promise<TicketProvisionResult> {
-  const me = guild.members.me;
+  const me = await resolveBotMember(guild);
   if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
     throw new Error("bot_missing_ticket_setup_permissions");
   }
@@ -518,7 +523,7 @@ async function onComponent(interaction: ComponentInteraction) {
     const topic = cfg.topics.find((item) => item.id === topicId);
     if (!topic || !cfg.categoryId) return respond(interaction, "موضوع أو تصنيف التذاكر غير صالح.");
     const category = guild.channels.cache.get(cfg.categoryId);
-    const me = guild.members.me;
+    const me = await resolveBotMember(guild);
     if (!category || category.type !== ChannelType.GuildCategory || !me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
       return respond(interaction, "إعدادات التذاكر أو صلاحية Manage Channels غير متاحة.");
     }

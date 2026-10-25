@@ -111,13 +111,18 @@ function findLogChannel(guild: Guild, categoryId: string, name: string): TextCha
   return (guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.parentId === categoryId && channel.name === name) ?? null) as TextChannel | null;
 }
 
+/** Gateway caches can be momentarily empty immediately after a new bot invite. */
+async function resolveBotMember(guild: Guild): Promise<GuildMember | null> {
+  return guild.members.me ?? guild.members.fetchMe().catch(() => null);
+}
+
 async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const member = interaction.member as GuildMember;
   if (member.id !== interaction.guild.ownerId && !member.permissions.has(PermissionFlagsBits.ManageGuild)) {
     return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو من يملك صلاحية Manage Server.");
   }
-  const me = interaction.guild.members.me;
+  const me = await resolveBotMember(interaction.guild);
   if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
     return respond(interaction, "لا يملك البوت حالياً View Channel وManage Channels وSend Messages. أعطه هذه الصلاحيات ثم أعد /systemix-logs setup.");
   }
@@ -215,7 +220,7 @@ export type LogProvisionResult = { createdChannels: number; reusedCategory: bool
 
 /** Owner-panel equivalent of `/systemix-logs setup`, without trusting a browser command cache. */
 export async function provisionLogsForGuild(guild: Guild, actorId: string): Promise<LogProvisionResult> {
-  const me = guild.members.me;
+  const me = await resolveBotMember(guild);
   if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
     throw new Error("bot_missing_log_setup_permissions");
   }

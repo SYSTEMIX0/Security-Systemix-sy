@@ -58,4 +58,10 @@ describe("ticket safety helpers", () => {
     expect(source).toContain("hasTicketCategoryAccess(channel, member)");
     expect(source).toContain("PermissionFlagsBits.ViewChannel");
   });
+
+  it("fetches the bot member after a fresh invite when the Gateway member cache is empty", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain("guild.members.fetchMe()");
+    expect(source).toContain("await resolveBotMember(guild)");
+  });
 });
