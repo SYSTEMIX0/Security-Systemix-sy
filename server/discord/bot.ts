@@ -335,7 +335,10 @@ function createClient(plan: IntentPlan): Client {
   });
 
   bot.once(Events.ClientReady, (readyClient) => {
-    if (!matchesDiscordApplicationId(discordClientId(), readyClient.user.id)) {
+    // A Discord application and its bot user are separate identities. Verify the
+    // authenticated client's application identity, not the bot user's public ID.
+    const activeApplicationId = readyClient.application?.id;
+    if (!matchesDiscordApplicationId(discordClientId(), activeApplicationId)) {
       runtimeState.status = "degraded";
       runtimeState.readyAt = null;
       runtimeState.guildCount = 0;

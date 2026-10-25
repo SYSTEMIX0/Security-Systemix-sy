@@ -24,7 +24,15 @@ export function registerDiscordRoutes(app: Express): void {
   registerDiscordOAuthRoutes(app);
 
   app.get("/api/discord/status", (_req, res) => {
-    res.json({ oauthConfigured: Boolean(discordClientSecret()), bot: getDiscordBotState() });
+    const client = getDiscordClient();
+    res.json({
+      oauthConfigured: Boolean(discordClientSecret()),
+      bot: {
+        ...getDiscordBotState(),
+        applicationId: client?.application?.id ?? null,
+        botUserId: client?.user?.id ?? null,
+      },
+    });
   });
 
   app.get("/api/discord/csrf", (_req, res) => {
