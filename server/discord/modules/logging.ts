@@ -191,6 +191,74 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   }
 }
 
+export type LogProvisionResult = { createdChannels: number; reusedCategory: boolean };
+
+/** Owner-panel equivalent of `/systemix-logs setup`, without trusting a browser command cache. */
+export async function provisionLogsForGuild(guild: Guild, actorId: string): Promise<LogProvisionResult> {
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    throw new Error("bot_missing_log_setup_permissions");
+  }
+  await recordSecurityEvent({
+    guildId: guild.id,
+    eventType: "logging:owner_setup_precondition",
+    actorId,
+    severity: "medium",
+    details: { requested: "four_private_log_channels" },
+  });
+
+  const createdChannels: TextChannel[] = [];
+  let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
+  const existingCategory = findLogCategory(guild);
+  try {
+    const category = existingCategory ?? await guild.channels.create({
+      name: LOG_CATEGORY_NAME,
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: [
+        { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+        { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+        ...[...guild.roles.cache.values()]
+          .filter((role) => !role.managed && (role.permissions.has(PermissionFlagsBits.Administrator) || role.permissions.has(PermissionFlagsBits.ManageGuild)))
+          .slice(0, 20)
+          .map((role) => ({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
+      ],
+      reason: "Security Systemix owner log setup",
+    });
+    if (!existingCategory) createdCategory = category;
+
+    const channels = {} as Record<keyof typeof SYSTEMIX_LOG_CHANNELS, TextChannel>;
+    for (const [key, name] of Object.entries(SYSTEMIX_LOG_CHANNELS) as Array<[keyof typeof SYSTEMIX_LOG_CHANNELS, string]>) {
+      let channel = findLogChannel(guild, category.id, name);
+      if (!channel) {
+        channel = await guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: "Security Systemix owner log channel" }) as TextChannel;
+        createdChannels.push(channel);
+      }
+      channels[key] = channel;
+    }
+    const current = await getGuildConfig(guild.id);
+    const next = mergeGuildSecurityConfig(current, {
+      general: { modLogChannelId: channels.security.id, securityLogChannelId: channels.security.id },
+      logging: {
+        enabled: true, channelId: channels.security.id, memberChannelId: channels.member.id,
+        messageChannelId: channels.message.id, securityChannelId: channels.security.id, voiceChannelId: channels.voice.id,
+        memberJoinLeave: true, messageDelete: true, messageEdit: true, memberRoles: true, nicknames: true,
+        channelChanges: true, roleChanges: true, voice: true, moderation: true,
+        ignoredChannelIds: Object.values(channels).map((channel) => channel.id),
+      },
+    });
+    await upsertGuildSecuritySettings(guild.id, actorId, next);
+    await channels.security.send({
+      embeds: [systemixEmbed({ title: "تم تشغيل اللوقات", description: "تم ربط قنوات العضوية والرسائل والحماية والصوت.", tone: "success", config: next })],
+      allowedMentions: { parse: [] },
+    }).catch(() => undefined);
+    return { createdChannels: createdChannels.length, reusedCategory: Boolean(existingCategory) };
+  } catch (error) {
+    await Promise.allSettled(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix owner log setup")));
+    if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix owner log setup").catch(() => undefined);
+    throw error;
+  }
+}
+
 async function handleCommand(interaction: LogCommandInteraction): Promise<void> {
   // An older `/logs channel` registration can remain visible briefly in Discord clients.
   // Treat it as the safe setup request too, rather than ignoring the owner's command.

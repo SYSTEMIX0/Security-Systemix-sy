@@ -45,7 +45,7 @@
 .owner-hero-copy h2 { margin: 6px 0 2px; color: #edf4ee; font-size: 17px; font-weight: 650; }
 .owner-hero-copy p { margin: 0; color: #8e9d92; font-size: 9px; }
 .owner-logout { flex: 0 0 auto; }
-.owner-readiness-panel, .owner-tools-panel, .owner-subscriptions-panel { padding: 15px 16px; }
+.owner-readiness-panel, .owner-tools-panel, .owner-subscriptions-panel, .owner-provision-panel { padding: 15px 16px; }
 .owner-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 11px; }
 .owner-panel-heading h2 { margin: 0; color: #e7eee8; font-size: 13px; font-weight: 650; }
 .owner-panel-heading p { margin: 3px 0 0; color: #7e8d83; font-size: 9px; line-height: 1.6; }
@@ -85,6 +85,9 @@
 .owner-suspend { flex: 0 0 auto; min-height: 30px; font-size: 8px; }
 .owner-tool-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .owner-tool-actions .button { display: inline-flex; align-items: center; gap: 7px; font-size: 9px; }
+.owner-provision-panel { margin-top: 12px; }
+.owner-provision-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.owner-provision-actions .button { display: inline-flex; align-items: center; gap: 7px; min-height: 37px; font-size: 9px; }
 .owner-console button:focus-visible { outline: 2px solid rgba(183,244,123,.7); outline-offset: 2px; }
 @media (max-width: 760px) {
   .owner-heading { align-items: flex-start; flex-direction: column; }
@@ -108,5 +111,7 @@
   .owner-subscription-row > div { flex-basis: 100%; }
   .owner-tool-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .owner-tool-actions .button { justify-content: center; min-height: 38px; }
+  .owner-provision-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .owner-provision-actions .button { justify-content: center; }
 }
 @media (prefers-reduced-motion: reduce) { .owner-spin { animation: none; } }

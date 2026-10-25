@@ -66,6 +66,12 @@ export type OwnerSubscriptionMutation =
   | { action: "activate" | "renew"; guildId: string; plan: "monthly" | "annual"; note?: string; confirmation: "RENEW_SUBSCRIPTION" }
   | { action: "suspend"; guildId: string; note?: string; confirmation: "SUSPEND_SUBSCRIPTION" };
 
+export type OwnerGuildProvision = {
+  guildId: string;
+  kind: "logs" | "tickets";
+  confirmation: "PROVISION_GUILD_CHANNELS";
+};
+
 export type RuntimeReadiness = {
   ready: boolean;
   status: "ready" | "not_ready";
@@ -223,6 +229,13 @@ export const discordApi = {
   },
   async updateOwnerSubscription(input: OwnerSubscriptionMutation) {
     return readJson<{ ok: true; subscription: OwnerSubscription }>("/api/owner/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
+      body: JSON.stringify(input),
+    });
+  },
+  async provisionOwnerGuild(input: OwnerGuildProvision) {
+    return readJson<{ ok: true; kind: OwnerGuildProvision["kind"]; result: { createdChannels?: number; createdPanels?: number; createdSupportRole?: boolean } }>("/api/owner/guild-provision", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
       body: JSON.stringify(input),

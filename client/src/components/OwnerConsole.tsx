@@ -48,6 +48,10 @@ function failureText(error: unknown): string {
   if (error.code === "owner_subscription_guild_unavailable") return "لا يمكن تفعيل هذا Guild ID الآن. تأكد أن البوت مثبت ومتصل بالسيرفر ثم حدّث الصفحة.";
   if (error.code === "owner_subscription_write_blocked") return "تعذر تسجيل تدقيق التجديد، لذلك لم يتغير الاشتراك. أعد المحاولة بعد التحقق من حالة الخدمة.";
   if (error.code === "owner_subscription_unavailable") return "تعذر قراءة الاشتراكات الآن. لم تُعرض أي بيانات بديلة.";
+  if (error.code === "owner_guild_provision_invalid") return "اختر سيرفراً مثبتاً فيه البوت قبل إعداد اللوقات أو التذاكر.";
+  if (error.code === "owner_guild_provision_unavailable") return "البوت غير متصل بهذا السيرفر الآن. حدّث الصفحة وتأكد أنه مثبت فيه.";
+  if (error.code === "owner_guild_provision_bot_permissions") return "يلزم أن يملك البوت Manage Channels وSend Messages؛ وللتذاكر لأول مرة يلزم أيضاً Manage Roles.";
+  if (error.code === "owner_guild_provision_blocked") return "تعذر إكمال الإعداد أو تدقيقه؛ لم يكتمل إنشاء القنوات الجديدة. تحقق من حالة الخدمة ثم أعد المحاولة.";
   if (error.status === 429) return "تجاوزت حد محاولات الدخول. انتظر قليلاً ثم أعد المحاولة.";
   return "تعذر إكمال الطلب. لم تُرسل أي إعدادات أو أسرار إلى المتصفح.";
 }
@@ -103,6 +107,7 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
   const [subscriptions, setSubscriptions] = useState<OwnerSubscription[]>([]);
   const [password, setPassword] = useState("");
   const [subscriptionGuildId, setSubscriptionGuildId] = useState("");
+  const [provisionGuildId, setProvisionGuildId] = useState("");
   const [subscriptionPlan, setSubscriptionPlan] = useState<"monthly" | "annual">("monthly");
   const [subscriptionNote, setSubscriptionNote] = useState("");
   const [loading, setLoading] = useState(true);
@@ -216,6 +221,29 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
     try {
       await discordApi.updateOwnerSubscription({ action: "suspend", guildId: subscription.guildId, confirmation: "SUSPEND_SUBSCRIPTION" });
       setNotice("تم تعليق الاشتراك وتسجيل الإجراء في سجل المالك.");
+      await refresh();
+    } catch (requestError) {
+      setError(failureText(requestError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const provisionGuild = async (kind: "logs" | "tickets") => {
+    const guildId = provisionGuildId.trim();
+    const label = kind === "logs" ? "قنوات اللوقات الأربع" : "قنوات لوحات التذاكر الثلاث";
+    if (!/^\d{17,20}$/.test(guildId) || submitting) {
+      setError("اختر سيرفراً مثبتاً فيه البوت قبل الإعداد.");
+      return;
+    }
+    if (!window.confirm(`إعداد ${label} في هذا السيرفر؟ سينشئ Systemix القنوات الناقصة فقط ويسجل العملية في سجل التدقيق.`)) return;
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await discordApi.provisionOwnerGuild({ guildId, kind, confirmation: "PROVISION_GUILD_CHANNELS" });
+      if (kind === "logs") setNotice(`تم إعداد اللوقات. أُنشئ ${result.result.createdChannels ?? 0} قناة ناقصة وربط أنواع اللوقات الأربعة.`);
+      else setNotice(`تم إعداد التذاكر. أُنشئ ${result.result.createdPanels ?? 0} لوحة ناقصة${result.result.createdSupportRole ? " ورتبة Systemix Support بلا صلاحيات" : ""}.`);
       await refresh();
     } catch (requestError) {
       setError(failureText(requestError));
@@ -338,6 +366,18 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
               <button type="button" className="button button-secondary" onClick={() => onNavigate("connection")}><LogIn size={15} /> ربط Discord <ArrowUpLeft size={13} /></button>
               <button type="button" className="button button-secondary" onClick={() => onNavigate("protection")}><Database size={15} /> إعدادات الحماية <ArrowUpLeft size={13} /></button>
             </div>
+          </section>
+
+          <section className="panel owner-provision-panel">
+            <div className="owner-panel-heading"><div><h2>إعداد قنوات السيرفر</h2><p>بديل مباشر وآمن عن أوامر Slash: ينشئ القنوات الناقصة فقط في سيرفر مثبت فيه البوت، ويسجل تدقيقاً قبل أي إنشاء.</p></div><Bot size={18} /></div>
+            <div className="owner-subscription-form">
+              <label>السيرفر<select value={provisionGuildId} onChange={(event) => setProvisionGuildId(event.currentTarget.value)}><option value="">اختر سيرفراً مثبتاً فيه البوت</option>{manageableGuilds.filter((guild) => guild.botInstalled).map((guild) => <option key={guild.id} value={guild.id}>{guild.name}</option>)}</select></label>
+              <div className="owner-provision-actions">
+                <button type="button" className="button button-secondary" disabled={submitting || !provisionGuildId} onClick={() => void provisionGuild("logs")}><Database size={15} /> إعداد اللوقات</button>
+                <button type="button" className="button button-primary" disabled={submitting || !provisionGuildId} onClick={() => void provisionGuild("tickets")}><ShieldCheck size={15} /> إعداد التذاكر</button>
+              </div>
+            </div>
+            <div className="owner-subscription-disclaimer"><AlertTriangle size={14} /><span>التذاكر تنشئ لوحات ثابتة في قنوات: <code>🎫・open-ticket</code> و<code>🤝・middleman-ticket</code> و<code>📈・levelup-ticket</code>. لا تمنح رتبة الدعم التي قد تُنشأ أي صلاحية بحد ذاتها.</span></div>
           </section>
         </>
       )}

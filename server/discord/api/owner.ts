@@ -5,6 +5,8 @@ import * as db from "../../db";
 import { ENV } from "../../_core/env";
 import { asyncRoute, validateMutation } from "./common";
 import { getDiscordBotState, getDiscordClient } from "../bot";
+import { provisionLogsForGuild } from "../modules/logging";
+import { provisionTicketsForGuild } from "../modules/tickets";
 import { discordClientSecret, getActiveDiscordSession } from "../oauth";
 import {
   clearOwnerCookie, createOwnerCookie, isOwnerEligible, isOwnerPasswordConfigured,
@@ -68,6 +70,13 @@ const subscriptionMutationSchema = z.discriminatedUnion("action", [
     confirmation: z.literal("SUSPEND_SUBSCRIPTION"),
   }).strict(),
 ]);
+
+const guildProvisionSchema = z.object({
+  guildId: snowflakeInput,
+  kind: z.enum(["logs", "tickets"]),
+  confirmation: z.literal("PROVISION_GUILD_CHANNELS"),
+}).strict();
+
 export function registerOwnerApi(app: Express): void {
   app.use("/api/owner", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -158,6 +167,37 @@ export function registerOwnerApi(app: Express): void {
       }
       // Includes failure to persist the audit precondition; fail closed and do not claim activation.
       res.status(503).json({ error: "owner_subscription_write_blocked" });
+    }
+  }));
+  app.post("/api/owner/guild-provision", asyncRoute(async (req, res) => {
+    if (!validateMutation(req, res)) return;
+    const session = await requireOwnerSession(req, res);
+    if (!session) return;
+    const parsed = guildProvisionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "owner_guild_provision_invalid" });
+      return;
+    }
+    const client = getDiscordClient();
+    const guild = client?.guilds.cache.get(parsed.data.guildId);
+    if (!client || getDiscordBotState().status !== "ready" || !guild) {
+      res.status(409).json({ error: "owner_guild_provision_unavailable" });
+      return;
+    }
+    try {
+      const result = parsed.data.kind === "logs"
+        ? await provisionLogsForGuild(guild, session.user.id)
+        : await provisionTicketsForGuild(guild, session.user.id);
+      res.json({ ok: true, kind: parsed.data.kind, result });
+    } catch (error) {
+      // The provisioning helpers audit first, clean up newly created Discord resources on failure,
+      // and intentionally avoid reporting provider details to a browser response.
+      const code = error instanceof Error ? error.message : "unknown";
+      if (code.startsWith("bot_missing_")) {
+        res.status(409).json({ error: "owner_guild_provision_bot_permissions" });
+        return;
+      }
+      res.status(503).json({ error: "owner_guild_provision_blocked" });
     }
   }));
 }

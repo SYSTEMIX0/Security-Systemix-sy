@@ -7,6 +7,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  type Guild,
   type GuildMember,
   type Message,
   type TextChannel,
@@ -273,6 +274,87 @@ async function setupTicketSystem(
     await Promise.allSettled(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix ticket setup")));
     logSafe(`Ticket setup failed in guild ${interaction.guildId}`, error);
     return respond(interaction, "لم يكتمل إعداد التذاكر. راجع صلاحيات Manage Channels وSend Messages ثم أعد الأمر؛ نُظفت القنوات الجديدة إن أمكن.");
+  }
+}
+
+export type TicketProvisionResult = { createdPanels: number; createdSupportRole: boolean; reusedPanelCategory: boolean };
+
+/** Owner-panel equivalent of `/systemix-tickets setup`; it creates no privilege-bearing role. */
+export async function provisionTicketsForGuild(guild: Guild, actorId: string): Promise<TicketProvisionResult> {
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    throw new Error("bot_missing_ticket_setup_permissions");
+  }
+  await recordSecurityEvent({
+    guildId: guild.id,
+    eventType: "ticket:owner_setup_precondition",
+    actorId,
+    severity: "medium",
+    details: { requested: "three_ticket_panels" },
+  });
+
+  const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
+  const createdPanels: TextChannel[] = [];
+  let createdSupportRole: { delete: (reason?: string) => Promise<unknown> } | null = null;
+  const existingPanelCategory = findPanelCategory(guild);
+  let panelCategory = existingPanelCategory;
+  let activeCategory = guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === ACTIVE_TICKETS_CATEGORY_NAME) ?? null;
+  try {
+    let supportRole = [...guild.roles.cache.values()].find((role) => !role.managed && role.name.toLowerCase() === "systemix support") ?? null;
+    if (!supportRole) {
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) throw new Error("bot_missing_ticket_role_permissions");
+      supportRole = await guild.roles.create({ name: "Systemix Support", permissions: [], reason: "Security Systemix ticket support role" });
+      createdSupportRole = supportRole;
+    }
+    if (!panelCategory) {
+      panelCategory = await guild.channels.create({ name: PANEL_CATEGORY_NAME, type: ChannelType.GuildCategory, reason: "Security Systemix owner ticket panel setup" });
+      createdCategories.push(panelCategory);
+    }
+    if (!activeCategory) {
+      activeCategory = await guild.channels.create({
+        name: ACTIVE_TICKETS_CATEGORY_NAME,
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: supportRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        ],
+        reason: "Security Systemix owner private ticket category",
+      });
+      createdCategories.push(activeCategory);
+    }
+
+    const panels: TextChannel[] = [];
+    const setupTopics = defaultGuildSecurityConfig.tickets.topics;
+    for (const topic of setupTopics) {
+      let panel = findTextChannel(guild, panelCategory.id, ticketPanelChannelName(topic.id));
+      if (!panel) {
+        panel = await guild.channels.create({
+          name: ticketPanelChannelName(topic.id), type: ChannelType.GuildText, parent: panelCategory.id,
+          permissionOverwrites: [
+            { id: guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          ],
+          reason: "Security Systemix owner ticket panel",
+        }) as TextChannel;
+        createdPanels.push(panel);
+      }
+      panels.push(panel);
+    }
+    const config = await getGuildConfig(guild.id);
+    const next = mergeGuildSecurityConfig(config, {
+      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: panels[0]?.id ?? null, staffRoleIds: [supportRole.id], topics: setupTopics },
+    });
+    for (let index = 0; index < panels.length; index += 1) {
+      await publishTopicPanel(panels[index]!, ticketPanel(next.tickets, next.tickets.topics[index]!), me.id);
+    }
+    await upsertGuildSecuritySettings(guild.id, actorId, next);
+    return { createdPanels: createdPanels.length, createdSupportRole: Boolean(createdSupportRole), reusedPanelCategory: Boolean(existingPanelCategory) };
+  } catch (error) {
+    await Promise.allSettled(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix owner ticket setup")));
+    await Promise.allSettled(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix owner ticket setup")));
+    if (createdSupportRole) await createdSupportRole.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined);
+    throw error;
   }
 }
 
