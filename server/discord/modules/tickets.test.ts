@@ -42,6 +42,17 @@ describe("ticket safety helpers", () => {
     expect(source).toContain("ACTIVE_TICKETS_CATEGORY_NAME");
   });
 
+  it("creates a configurable ticket centre and records lifecycle events without ticket text", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain('TICKET_CENTER_CHANNEL_NAME = "🎟️・ticket-center"');
+    expect(source).toContain("new StringSelectMenuBuilder()");
+    expect(source).toContain("writeTicketLifecycleLog");
+    expect(source).toContain('eventType: "opened"');
+    expect(source).toContain('eventType: "claimed"');
+    expect(source).toContain('eventType: "closed"');
+    expect(source).toContain('customId("tickets", "closeconfirm", ticket.id)');
+  });
+
   it("avoids reusing a ticket category hidden from the bot", async () => {
     const source = await readFile("server/discord/modules/tickets.ts", "utf8");
     expect(source).toContain("hasTicketCategoryAccess(channel, member)");

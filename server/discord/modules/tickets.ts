@@ -7,6 +7,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
   type Guild,
   type GuildMember,
   type Message,
@@ -14,9 +15,10 @@ import {
   type TextChannel,
 } from "discord.js";
 import type { ComponentInteraction, SystemixModule } from "../core/types";
-import { defaultGuildSecurityConfig, mergeGuildSecurityConfig } from "../config";
+import { defaultGuildSecurityConfig, mergeGuildSecurityConfig, type GuildSecurityConfig } from "../config";
 import { customId } from "../core/types";
-import { getGuildConfig, isStaffMember, logSafe } from "../core/context";
+import { getGuildConfig, isStaffMember, logSafe, sendSecurityAlert, systemixEmbed } from "../core/context";
+import { loggingDestination, loggingEnabled } from "./logging";
 import { recordSecurityEvent, upsertGuildSecuritySettings } from "../../db";
 import {
   TicketLimitReachedError,
@@ -53,6 +55,7 @@ export const TICKET_PANEL_CHANNELS: Record<string, string> = {
 
 const PANEL_CATEGORY_NAME = "🎫・ticket-panels";
 const LEGACY_PANEL_CATEGORY_NAME = "🎫・systemix-tickets";
+export const TICKET_CENTER_CHANNEL_NAME = "🎟️・ticket-center";
 const ACTIVE_TICKETS_CATEGORY_NAME = "🔒・active-tickets";
 
 export function ticketPanelChannelName(topicId: string): string {
@@ -85,6 +88,59 @@ async function respond(interaction: TicketInteraction, content: string): Promise
   }
 }
 
+/**
+ * Ticket lifecycle records deliberately contain identifiers and state only. Ticket
+ * message content never enters the database or the dedicated ticket-log channel.
+ * Logging is non-blocking after ticket state succeeds, so a delivery outage never
+ * leaves a customer with a half-created or half-closed ticket.
+ */
+async function writeTicketLifecycleLog(input: {
+  guild: Guild;
+  config: GuildSecurityConfig;
+  eventType: "opened" | "claimed" | "closed";
+  actorId: string;
+  openerId: string;
+  ticketId: number;
+  channelId: string | null;
+  channelDeleted?: boolean;
+  topic?: string;
+}): Promise<void> {
+  if (!loggingEnabled(input.config, "ticketEvents")) return;
+  try {
+    await recordSecurityEvent({
+      guildId: input.guild.id,
+      eventType: `ticket:${input.eventType}`,
+      actorId: input.actorId,
+      targetId: input.openerId,
+      severity: "low",
+      details: {
+        ticketId: input.ticketId,
+        channelId: input.channelId,
+        openerId: input.openerId,
+        topic: input.topic ?? null,
+      },
+    });
+  } catch (error) {
+    logSafe(`Ticket ${input.eventType} audit write failed in guild ${input.guild.id}`, error);
+    return;
+  }
+
+  const destination = loggingDestination(input.config, "ticketEvents");
+  if (!destination) return;
+  const eventNames = { opened: "فُتحت تذكرة", claimed: "استُلِمت تذكرة", closed: "أُغلقت تذكرة" } as const;
+  const fields = [
+    { name: "رقم التذكرة", value: `\`${input.ticketId}\``, inline: true },
+    { name: "صاحب التذكرة", value: `\`${input.openerId}\``, inline: true },
+    { name: "المنفذ", value: `\`${input.actorId}\``, inline: true },
+    { name: "القناة", value: input.channelId ? `${input.channelDeleted ? "حُذفت · " : ""}\`${input.channelId}\`` : "غير متاحة", inline: true },
+  ];
+  if (input.topic) fields.push({ name: "النوع", value: input.topic, inline: true });
+  await sendSecurityAlert(input.guild, input.config, destination, {
+    embeds: [systemixEmbed({ title: eventNames[input.eventType], tone: "info", fields, config: input.config })],
+    allowedMentions: { parse: [] },
+  }).catch((error) => logSafe(`Ticket ${input.eventType} log delivery failed in guild ${input.guild.id}`, error));
+}
+
 function supportRoles(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], config: Awaited<ReturnType<typeof getGuildConfig>>) {
   const roleIds = [...new Set([...config.tickets.staffRoleIds, ...config.general.staffRoleIds])]
     .filter((id) => id !== guild.id);
@@ -112,6 +168,28 @@ function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"],
       .setTitle(`${topic.emoji ? `${topic.emoji} ` : ""}${topic.label}`)
       .setDescription([cfg.panelDescription, topic.description].filter(Boolean).join("\n\n"))],
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
+    allowedMentions: { parse: [] as [] },
+  };
+}
+
+/** A single polished menu can expose up to ten owner-configured ticket departments. */
+function ticketCenterPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"]) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(customId("tickets", "open"))
+    .setPlaceholder("اختر القسم الذي يناسب طلبك")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(cfg.topics.slice(0, 10).map((topic) => ({
+      label: topic.label.slice(0, 100),
+      description: topic.description.slice(0, 100) || "فتح تذكرة خاصة",
+      value: topic.id,
+      ...(topic.emoji ? { emoji: topic.emoji } : {}),
+    })));
+  return {
+    embeds: [new EmbedBuilder()
+      .setTitle(cfg.panelTitle)
+      .setDescription(`${cfg.panelDescription}\n\nاختر قسمك من القائمة أدناه. تفتح كل تذكرة في قناة خاصة لا يراها إلا صاحبها وفريق الدعم.`)],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
     allowedMentions: { parse: [] as [] },
   };
 }
@@ -150,6 +228,10 @@ function findTextChannel(guild: Parameters<NonNullable<SystemixModule["onCommand
   return channel as TextChannel | null;
 }
 
+function findTicketCenter(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], categoryId: string): TextChannel | null {
+  return findTextChannel(guild, categoryId, TICKET_CENTER_CHANNEL_NAME);
+}
+
 function containsTicketTrigger(message: Pick<Message<true>, "components">): boolean {
   return message.components.some((row) => "components" in row
     && Array.isArray(row.components)
@@ -160,7 +242,7 @@ function containsTicketTrigger(message: Pick<Message<true>, "components">): bool
 
 async function publishTopicPanel(
   channel: TextChannel,
-  payload: ReturnType<typeof ticketPanel>,
+  payload: ReturnType<typeof ticketPanel> | ReturnType<typeof ticketCenterPanel>,
   botUserId: string,
 ): Promise<void> {
   // Missing Read Message History must not prevent a permitted bot from sending a fresh panel.
@@ -177,11 +259,22 @@ async function publishTicketPanels(
   panelCategoryId: string,
   botUserId: string,
 ): Promise<void> {
-  for (const topic of cfg.topics) {
+  for (const topic of cfg.topics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
     const channel = findTextChannel(guild, panelCategoryId, ticketPanelChannelName(topic.id));
     if (!channel) throw new Error(`ticket_panel_channel_missing:${topic.id}`);
     await publishTopicPanel(channel, ticketPanel(cfg, topic), botUserId);
   }
+}
+
+async function publishTicketCenter(
+  guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"],
+  cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"],
+  panelCategoryId: string,
+  botUserId: string,
+): Promise<void> {
+  const center = findTicketCenter(guild, panelCategoryId);
+  if (!center) throw new Error("ticket_center_channel_missing");
+  await publishTopicPanel(center, ticketCenterPanel(cfg), botUserId);
 }
 
 async function handleCommand(interaction: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]) {
@@ -191,15 +284,18 @@ async function handleCommand(interaction: Parameters<NonNullable<SystemixModule[
   if (subcommand === "setup") return setupTicketSystem(interaction, config);
   const cfg = config.tickets;
   if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
-  if (!isStaffMember(interaction.member as GuildMember, config)) return respond(interaction, "هذا الأمر مخصص لفريق الدعم.");
+  const member = interaction.member as GuildMember;
+  const mayManagePanels = member.id === interaction.guild.ownerId || member.permissions.has(PermissionFlagsBits.ManageGuild) || isStaffMember(member, config);
+  if (!mayManagePanels) return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو فريق الدعم.");
   if (subcommand !== "panel") return respond(interaction, "الأمر غير متاح.");
   const category = findPanelCategory(interaction.guild, interaction.guild.members.me);
   if (!category) return respond(interaction, "لا توجد قنوات لوحات التذاكر بعد. استخدم /ticket setup أولاً.");
   if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
 
   try {
+    await publishTicketCenter(interaction.guild, cfg, category.id, interaction.client.user.id);
     await publishTicketPanels(interaction.guild, cfg, category.id, interaction.client.user.id);
-    return respond(interaction, "تم تحديث لوحات فتح التذكرة والوسيط ورفع المستوى.");
+    return respond(interaction, "تم تحديث مركز التذاكر والأقسام المخصصة.");
   } catch (error) {
     logSafe(`Ticket panel publish failed in guild ${interaction.guildId}`, error);
     return respond(interaction, "تعذر نشر إحدى لوحات التذاكر. تأكد أن البوت يملك View Channel وSend Messages ثم أعد /ticket setup.");
@@ -260,9 +356,22 @@ async function setupTicketSystem(
       createdCategories.push(activeCategory);
     }
 
-    const panels: TextChannel[] = [];
-    const setupTopics = defaultGuildSecurityConfig.tickets.topics;
-    for (const topic of setupTopics) {
+    const setupTopics = config.tickets.topics.length ? config.tickets.topics : defaultGuildSecurityConfig.tickets.topics;
+    let center = findTicketCenter(interaction.guild, panelCategory.id);
+    if (!center) {
+      center = await interaction.guild.channels.create({
+        name: TICKET_CENTER_CHANNEL_NAME,
+        type: ChannelType.GuildText,
+        parent: panelCategory.id,
+        permissionOverwrites: [
+          { id: interaction.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+        ],
+        reason: "Security Systemix ticket center",
+      }) as TextChannel;
+      createdPanels.push(center);
+    }
+    for (const topic of setupTopics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
       let panel = findTextChannel(interaction.guild, panelCategory.id, ticketPanelChannelName(topic.id));
       if (!panel) {
         panel = await interaction.guild.channels.create({
@@ -277,18 +386,16 @@ async function setupTicketSystem(
         }) as TextChannel;
         createdPanels.push(panel);
       }
-      panels.push(panel);
     }
 
     const next = mergeGuildSecurityConfig(config, {
-      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: panels[0]?.id ?? null, staffRoleIds: [supportRole.id], topics: setupTopics },
+      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: center.id, staffRoleIds: [supportRole.id], topics: setupTopics },
     });
     // Panels are prepared before settings become active, so a database failure never leaves live controls behind.
-    for (let index = 0; index < panels.length; index += 1) {
-      await publishTopicPanel(panels[index]!, ticketPanel(next.tickets, next.tickets.topics[index]!), interaction.client.user.id);
-    }
+    await publishTicketCenter(interaction.guild, next.tickets, panelCategory.id, interaction.client.user.id);
+    await publishTicketPanels(interaction.guild, next.tickets, panelCategory.id, interaction.client.user.id);
     await upsertGuildSecuritySettings(interaction.guildId, member.id, next);
-    return respond(interaction, "تم إعداد التذاكر. أُنشئت قنوات 🎫・open-ticket و🤝・middleman-ticket و📈・levelup-ticket، وكل قناة تحتوي زر فتح خاصاً بها.");
+    return respond(interaction, "تم إعداد مركز التذاكر. أُنشئت قناة 🎟️・ticket-center بقائمة الأقسام، وقنوات مباشرة للوسيط ورفع المستوى والطلبات الأخرى.");
   } catch (error) {
     await Promise.all(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined)));
     await Promise.all(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined)));
@@ -347,9 +454,23 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
       createdCategories.push(activeCategory);
     }
 
-    const panels: TextChannel[] = [];
-    const setupTopics = defaultGuildSecurityConfig.tickets.topics;
-    for (const topic of setupTopics) {
+    const config = await getGuildConfig(guild.id);
+    const setupTopics = config.tickets.topics.length ? config.tickets.topics : defaultGuildSecurityConfig.tickets.topics;
+    let center = findTicketCenter(guild, panelCategory.id);
+    if (!center) {
+      center = await guild.channels.create({
+        name: TICKET_CENTER_CHANNEL_NAME,
+        type: ChannelType.GuildText,
+        parent: panelCategory.id,
+        permissionOverwrites: [
+          { id: guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+        ],
+        reason: "Security Systemix owner ticket center",
+      }) as TextChannel;
+      createdPanels.push(center);
+    }
+    for (const topic of setupTopics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
       let panel = findTextChannel(guild, panelCategory.id, ticketPanelChannelName(topic.id));
       if (!panel) {
         panel = await guild.channels.create({
@@ -362,15 +483,12 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
         }) as TextChannel;
         createdPanels.push(panel);
       }
-      panels.push(panel);
     }
-    const config = await getGuildConfig(guild.id);
     const next = mergeGuildSecurityConfig(config, {
-      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: panels[0]?.id ?? null, staffRoleIds: [supportRole.id], topics: setupTopics },
+      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: center.id, staffRoleIds: [supportRole.id], topics: setupTopics },
     });
-    for (let index = 0; index < panels.length; index += 1) {
-      await publishTopicPanel(panels[index]!, ticketPanel(next.tickets, next.tickets.topics[index]!), me.id);
-    }
+    await publishTicketCenter(guild, next.tickets, panelCategory.id, me.id);
+    await publishTicketPanels(guild, next.tickets, panelCategory.id, me.id);
     await upsertGuildSecuritySettings(guild.id, actorId, next);
     return { createdPanels: createdPanels.length, createdSupportRole: Boolean(createdSupportRole), reusedPanelCategory: Boolean(existingPanelCategory) };
   } catch (error) {
@@ -430,11 +548,27 @@ async function onComponent(interaction: ComponentInteraction) {
       });
       await setTicketChannel(guild.id, ticket.id, channel.id);
       const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(customId("tickets", "claim", ticket.id)).setLabel("استلام").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(customId("tickets", "close", ticket.id)).setLabel("إغلاق").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(customId("tickets", "claim", ticket.id)).setLabel("استلام التذكرة").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(customId("tickets", "close", ticket.id)).setLabel("إغلاق التذكرة").setStyle(ButtonStyle.Danger),
       );
       const text = cfg.openMessage.replace(/\{user\}/g, `<@${member.id}>`).slice(0, 1000);
-      await channel.send({ content: text, components: [controls], allowedMentions: { users: [member.id], roles: [], parse: [] } });
+      const ticketCard = new EmbedBuilder()
+        .setTitle(`${topic.emoji || "🎫"} تذكرة #${ticket.ticketNumber} • ${topic.label}`)
+        .setDescription(text)
+        .addFields(
+          { name: "صاحب التذكرة", value: `<@${member.id}>`, inline: true },
+          { name: "القسم", value: topic.label, inline: true },
+          { name: "الحالة", value: "بانتظار فريق الدعم", inline: true },
+          { name: "وقت الفتح", value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
+          { name: "فريق الدعم", value: roles.map((role) => `<@&${role.id}>`).join(" · ").slice(0, 1_000) || "غير محدد", inline: false },
+        )
+        .setFooter({ text: `Security Systemix • رقم التذكرة ${ticket.ticketNumber}` })
+        .setTimestamp();
+      await channel.send({ content: `<@${member.id}>`, embeds: [ticketCard], components: [controls], allowedMentions: { users: [member.id], roles: [], parse: [] } });
+      void writeTicketLifecycleLog({
+        guild, config, eventType: "opened", actorId: member.id, openerId: member.id,
+        ticketId: ticket.id, channelId: channel.id, topic: topic.label,
+      });
       return respond(interaction, `تم فتح تذكرتك: <#${channel.id}>`);
     } catch (error) {
       if (channel) await channel.delete("Ticket provisioning failed").catch((cleanupError) => logSafe(`Ticket channel cleanup failed in guild ${guild.id}`, cleanupError));
@@ -445,7 +579,7 @@ async function onComponent(interaction: ComponentInteraction) {
     }
   }
 
-  if ((action === "close" || action === "claim") && arg && /^\d+$/.test(arg)) {
+  if ((action === "close" || action === "closeconfirm" || action === "closecancel" || action === "claim") && arg && /^\d+$/.test(arg)) {
     const ticket = await getTicketByChannel(guild.id, interaction.channelId);
     if (!ticket || ticket.id !== Number(arg) || ticket.status === "closed" || ticket.status === "closing") return respond(interaction, "التذكرة غير متاحة.");
     const staff = isStaffMember(member, config) || cfg.staffRoleIds.some((id) => member.roles.cache.has(id));
@@ -453,12 +587,27 @@ async function onComponent(interaction: ComponentInteraction) {
     if (action === "claim") {
       if (!staff) return respond(interaction, "استلام التذكرة متاح لفريق الدعم فقط.");
       const claimed = await claimTicket(guild.id, ticket.id, member.id);
-      if (claimed === "claimed") return respond(interaction, "تم استلام التذكرة.");
+      if (claimed === "claimed") {
+        void writeTicketLifecycleLog({
+          guild, config, eventType: "claimed", actorId: member.id, openerId: ticket.openerId,
+          ticketId: ticket.id, channelId: ticket.channelId, topic: ticket.topic,
+        });
+        return respond(interaction, "تم استلام التذكرة.");
+      }
       if (claimed === "already_claimed") return respond(interaction, "هذه التذكرة استلمها عضو دعم آخر بالفعل.");
       return respond(interaction, "التذكرة لم تعد متاحة للاستلام.");
     }
 
     if (!canManageTicket(member.id, ticket.openerId, staff)) return respond(interaction, "لا يمكنك إغلاق تذكرة شخص آخر.");
+    if (action === "closecancel") return respond(interaction, "أُلغي إغلاق التذكرة؛ بقيت مفتوحة.");
+    if (action === "close") {
+      const confirmation = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(customId("tickets", "closeconfirm", ticket.id)).setLabel("نعم، أغلق التذكرة").setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(customId("tickets", "closecancel", ticket.id)).setLabel("إلغاء").setStyle(ButtonStyle.Secondary),
+      );
+      await interaction.editReply({ content: "هل أنت متأكد؟ سيُحذف Channel التذكرة ثم يوثق البوت عملية الإغلاق في السجل.", components: [confirmation], allowedMentions: { parse: [] } });
+      return;
+    }
     const closingTicket = await beginTicketClose(guild.id, ticket.id);
     if (!closingTicket) return respond(interaction, "التذكرة قيد الإغلاق أو أُغلقت بالفعل.");
     let channelDeleted = !closingTicket.channelId;
@@ -470,6 +619,10 @@ async function onComponent(interaction: ComponentInteraction) {
       }
       const finalized = await finishTicketClose(guild.id, ticket.id, member.id);
       if (!finalized) throw new Error("ticket_close_finalize_failed");
+      void writeTicketLifecycleLog({
+        guild, config, eventType: "closed", actorId: member.id, openerId: ticket.openerId,
+        ticketId: ticket.id, channelId: closingTicket.channelId, channelDeleted: true, topic: ticket.topic,
+      });
       return respond(interaction, "تم إغلاق التذكرة وحذف قناتها. لا يتم حفظ نصوص الرسائل في هذه النسخة.");
     } catch (error) {
       const previousStatus = ticket.status === "claimed" ? "claimed" : "open";

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, Save, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, LoaderCircle, Plus, RefreshCw, Save, Trash2, Users } from "lucide-react";
 import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/discord/config";
 import type { GuildMeta } from "../../../shared/systemix-api";
 import { DiscordApiError, discordApi, type DiscordGuildSnapshot } from "@/lib/discord-api";
@@ -8,6 +8,7 @@ import "./CommunityConsole.css";
 
 type Props = { guildId: string; guildName: string };
 type EditableSection = "tickets" | "giveaways" | "welcome" | "leveling" | "suggestions";
+type TicketTopicDraft = GuildSecurityConfig["tickets"]["topics"][number];
 
 function errorMessage(error: unknown): string {
   if (error instanceof DiscordApiError && error.code === "audit_precondition_failed") return "تعذّر تسجيل التغيير في سجل التدقيق؛ لم تُحفظ الإعدادات.";
@@ -65,6 +66,28 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
     setDraft((current) => current ? { ...current, [key]: { ...current[key], ...changes } } as GuildSecurityConfig : current);
   };
 
+  const updateTicketTopic = (topicId: string, changes: Partial<GuildSecurityConfig["tickets"]["topics"][number]>) => {
+    setDraft((current) => current ? {
+      ...current,
+      tickets: { ...current.tickets, topics: current.tickets.topics.map((topic) => topic.id === topicId ? { ...topic, ...changes } : topic) },
+    } : current);
+  };
+
+  const addTicketTopic = () => {
+    setDraft((current) => {
+      if (!current || current.tickets.topics.length >= 10) return current;
+      const id = `custom-${Date.now().toString(36)}`;
+      return { ...current, tickets: { ...current.tickets, topics: [...current.tickets.topics, { id, label: "قسم جديد", emoji: "🎫", description: "اكتب وصف هذا القسم هنا" }] } };
+    });
+  };
+
+  const removeTicketTopic = (topicId: string) => {
+    setDraft((current) => {
+      if (!current || current.tickets.topics.length <= 1) return current;
+      return { ...current, tickets: { ...current.tickets, topics: current.tickets.topics.filter((topic) => topic.id !== topicId) } };
+    });
+  };
+
   const save = async () => {
     if (!draft || !snapshot) return;
     const saveGuildId = guildId;
@@ -105,19 +128,20 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
 
       {problem && <div className="pc-message pc-message-error" role="alert"><AlertTriangle size={18} /> {problem}</div>}
       {notice && <div className="pc-message pc-message-success" role="status"><CheckCircle2 size={18} /> {notice}</div>}
-      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> لإعداد التذاكر من دون اختيار القنوات يدوياً: اكتب <bdi dir="ltr">/ticket setup</bdi> في Discord واختر رتبة الدعم. ينشئ البوت 3 قنوات لوحات ثابتة وقناة خاصة للتذاكر المفتوحة. لا تتضمن هذه النسخة حفظ نصوص المحادثات أو Transcript.</div>
+      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> بعد تخصيص الأقسام وحفظها، اكتب <bdi dir="ltr">/systemix-tickets setup</bdi> في Discord واختر رتبة الدعم. ينشئ البوت مركز تذاكر بقائمة الأقسام وقنوات خاصة للطلبات. لا تتضمن هذه النسخة حفظ نصوص المحادثات أو Transcript.</div>
 
       <div className="pc-grid">
         <article className="pc-card">
           <div className="pc-card-title"><div><span className="pc-icon pc-icon-blue">01</span><div><h2>التذاكر والدعم</h2><p>قنوات وفريق ورسائل مركز الدعم</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.tickets.enabled} onChange={(checked) => updateSection("tickets", { enabled: checked })} /></div>
-          <ChannelSelect label="فئة التذاكر" value={draft.tickets.categoryId} channels={categories} onChange={(value) => updateSection("tickets", { categoryId: value })} />
-          <ChannelSelect label="قناة لوحة التذاكر" value={draft.tickets.panelChannelId} channels={textChannels} onChange={(value) => updateSection("tickets", { panelChannelId: value })} />
+          <ChannelSelect label="فئة التذاكر الخاصة" value={draft.tickets.categoryId} channels={categories} onChange={(value) => updateSection("tickets", { categoryId: value })} />
+          <ChannelSelect label="قناة مركز التذاكر" value={draft.tickets.panelChannelId} channels={textChannels} onChange={(value) => updateSection("tickets", { panelChannelId: value })} />
           <RolePicker label="رتب فريق الدعم" roles={roles} selected={draft.tickets.staffRoleIds} onChange={(value) => updateSection("tickets", { staffRoleIds: value })} />
           <NumberField label="أقصى تذاكر مفتوحة لكل عضو" value={draft.tickets.maxOpenPerUser} min={1} max={5} onChange={(value) => updateSection("tickets", { maxOpenPerUser: value })} />
           <TextField label="عنوان اللوحة" value={draft.tickets.panelTitle} maxLength={100} onChange={(value) => updateSection("tickets", { panelTitle: value })} />
           <TextField label="وصف اللوحة" value={draft.tickets.panelDescription} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { panelDescription: value })} />
           <TextField label="رسالة فتح التذكرة — يدعم {user}" value={draft.tickets.openMessage} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { openMessage: value })} />
-          <p className="pc-hint">الأنواع القياسية: فتح تذكرة · تذكرة وسيط · تذكرة رفع مستوى. نفّذ <bdi dir="ltr">/ticket setup</bdi> مرة واحدة كمالك السيرفر أو بصلاحية Manage Server؛ ينشئ البوت قنوات <bdi dir="ltr">🎫・open-ticket</bdi> و<bdi dir="ltr">🤝・middleman-ticket</bdi> و<bdi dir="ltr">📈・levelup-ticket</bdi> ويرسل في كل قناة زر فتح خاصاً بها. استخدم <bdi dir="ltr">/ticket panel</bdi> لتحديث الرسائل لاحقاً.</p>
+          <TicketTopicsEditor topics={draft.tickets.topics} onUpdate={updateTicketTopic} onAdd={addTicketTopic} onRemove={removeTicketTopic} />
+          <p className="pc-hint">هذه الأقسام تظهر في قائمة <bdi dir="ltr">🎟️・ticket-center</bdi>. غيّر الاسم والوصف والرمز كما تريد، ثم احفظ ونفّذ <bdi dir="ltr">/systemix-tickets panel</bdi> لتحديث اللوحة. لا تحذف كل الأقسام؛ يجب أن يبقى قسم واحد على الأقل.</p>
         </article>
 
         <article className="pc-card">
@@ -176,6 +200,27 @@ function SelectField({ label, value, options, onChange }: { label: string; value
 
 function TextField({ label, value, maxLength, multiline = false, onChange }: { label: string; value: string; maxLength: number; multiline?: boolean; onChange: (value: string) => void }) {
   return <label className="pc-field"><span>{label}</span>{multiline ? <textarea maxLength={maxLength} rows={3} value={value} onChange={(event) => onChange(event.currentTarget.value)} /> : <input maxLength={maxLength} value={value} onChange={(event) => onChange(event.currentTarget.value)} />}</label>;
+}
+
+function TicketTopicsEditor({ topics, onUpdate, onAdd, onRemove }: {
+  topics: TicketTopicDraft[];
+  onUpdate: (topicId: string, changes: Partial<TicketTopicDraft>) => void;
+  onAdd: () => void;
+  onRemove: (topicId: string) => void;
+}) {
+  return <fieldset className="ticket-topics-editor">
+    <legend>أقسام مركز التذاكر</legend>
+    <small>تظهر في قائمة اختيار واحدة للأعضاء. يمكنك إضافة حتى 10 أقسام، مثل شكوى على إداري أو اعتراض على عقوبة.</small>
+    <div className="ticket-topics-list">
+      {topics.map((topic) => <div className="ticket-topic-row" key={topic.id}>
+        <label className="ticket-topic-emoji"><span>رمز</span><input value={topic.emoji} maxLength={64} aria-label={`رمز ${topic.label}`} onChange={(event) => onUpdate(topic.id, { emoji: event.currentTarget.value })} /></label>
+        <label className="ticket-topic-label"><span>اسم القسم</span><input value={topic.label} maxLength={80} aria-label={`اسم القسم ${topic.label}`} onChange={(event) => onUpdate(topic.id, { label: event.currentTarget.value })} /></label>
+        <label className="ticket-topic-description"><span>وصف مختصر</span><input value={topic.description} maxLength={100} aria-label={`وصف القسم ${topic.label}`} onChange={(event) => onUpdate(topic.id, { description: event.currentTarget.value })} /></label>
+        <button type="button" className="ticket-topic-remove" onClick={() => onRemove(topic.id)} disabled={topics.length <= 1} aria-label={`حذف قسم ${topic.label}`} title="حذف القسم"><Trash2 size={15} /></button>
+      </div>)}
+    </div>
+    <button type="button" className="pc-button pc-button-secondary ticket-topic-add" onClick={onAdd} disabled={topics.length >= 10}><Plus size={15} /> إضافة قسم</button>
+  </fieldset>;
 }
 
 function ChannelSelect({ label, value, channels, onChange }: { label: string; value: string | null; channels: GuildMeta["channels"]; onChange: (value: string | null) => void }) {

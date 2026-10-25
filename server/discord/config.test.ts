@@ -54,7 +54,7 @@ describe("risk signals", () => {
 });
 
 describe("ticket topic upgrade", () => {
-  it("replaces the old preview topic pair with the three live ticket types", () => {
+  it("replaces old preview defaults with the commercial ticket centre topics", () => {
     const config = normalizeGuildSecurityConfig({
       tickets: {
         topics: [
@@ -63,6 +63,20 @@ describe("ticket topic upgrade", () => {
         ],
       },
     });
-    expect(config.tickets.topics.map((topic) => topic.id)).toEqual(["open-ticket", "middleman-ticket", "levelup-ticket"]);
+    expect(config.tickets.topics).toEqual(defaultGuildSecurityConfig.tickets.topics);
+  });
+
+  it("upgrades the previous three standard topics but preserves custom owner topics", () => {
+    const upgraded = normalizeGuildSecurityConfig({
+      tickets: {
+        topics: ["open-ticket", "middleman-ticket", "levelup-ticket"].map((id) => ({ id, label: id, emoji: "🎫", description: id })),
+      },
+    });
+    expect(upgraded.tickets.topics).toEqual(defaultGuildSecurityConfig.tickets.topics);
+
+    const custom = normalizeGuildSecurityConfig({
+      tickets: { topics: [{ id: "admin-complaint", label: "شكوى على إداري", emoji: "📣", description: "خاص" }] },
+    });
+    expect(custom.tickets.topics).toEqual([{ id: "admin-complaint", label: "شكوى على إداري", emoji: "📣", description: "خاص" }]);
   });
 });
