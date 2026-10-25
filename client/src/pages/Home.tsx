@@ -604,14 +604,31 @@ function ListsPage({ onToast }: { onToast: (toast: ToastMessage) => void }) {
   </>;
 }
 
-function TeamPage({ onToast }: { onToast: (toast: ToastMessage) => void }) {
-  const people = [{ name: "مالك السيرفر", tag: "Owner · أعلى صلاحية", initials: "MA", grants: "إدارة كاملة", state: "active" }, { name: "Lina Moderator", tag: "Moderator", initials: "LM", grants: "3 قدرات محددة", state: "active" }, { name: "Omar Support", tag: "Support", initials: "OS", grants: "تحذيرات فقط", state: "active" }, { name: "Hala Helper", tag: "Helper", initials: "HH", grants: "قيد المراجعة", state: "approval" }];
+function TeamPage({ selectedGuildName, botInstalled, memberIntentEnabled }: {
+  selectedGuildName: string | null;
+  botInstalled: boolean;
+  memberIntentEnabled: boolean;
+}) {
+  const nextStep = !selectedGuildName
+    ? "اربط حساب Discord واختر سيرفراً أولاً."
+    : !botInstalled
+      ? "أضف البوت إلى السيرفر المحدد أولاً."
+      : !memberIntentEnabled
+        ? "قراءة قائمة أعضاء Discord تتطلب Server Members Intent؛ لم نغيّر هذا الإعداد."
+        : "الإذن مفعّل، لكن واجهة إدارة الفريق الحقيقية لم تُربط بعد.";
   return <>
-    <PreviewBanner />
-    <PageHeading eyebrow="ACCESS CONTROL" title="الفريق والصلاحيات" description="وصول أقل يعني سطح هجوم أقل. راجع الصلاحيات دورياً." actions={<MiniButton variant="primary" icon={Plus} onClick={() => onToast({ title: "إضافة عضو", detail: "اختر الأعضاء بعد ربط خادم Discord." })}>إضافة عضو</MiniButton>} />
-    <div className="access-summary"><div className="access-summary-icon"><Users size={19} /></div><div><strong>الصلاحية الواسعة استثناء، لا قاعدة.</strong><span>التفويضات الدقيقة أقل خطراً من منح Manage Server لكل موظف.</span></div><button className="text-link" onClick={() => onToast({ title: "مراجعة صلاحيات", detail: "بيانات الأعضاء تجريبية." })}>مراجعة الصلاحيات <ArrowLeft size={14} /></button></div>
-    <article className="panel team-list-panel"><div className="panel-heading"><div><h2>أعضاء الفريق</h2><p>4 مستخدمين في المعاينة</p></div><button className="filter-button" onClick={() => onToast({ title: "تصفية الفريق", detail: "ستتوفر التصفية بعد الاتصال بـDiscord." })}><ListFilter size={15} /> تصفية</button></div><div className="team-list">{people.map((person, index) => <div className="team-row" key={person.name}><span className={`team-avatar team-avatar-${index}`}>{person.initials}</span><div className="team-person"><strong>{person.name}</strong><span>{person.tag}</span></div><div className="team-access"><small>صلاحيات Systemix</small><strong>{person.grants}</strong></div><StatusPill status={person.state} /><button className="icon-button row-more" aria-label={`خيارات ${person.name}`} onClick={() => onToast({ title: "إدارة الصلاحيات", detail: "تُحدّث الصلاحيات الحقيقية بعد الربط فقط." })}><MoreHorizontal size={18} /></button></div>)}</div></article>
-    <div className="permission-callouts"><article><KeyRound size={16} /><div><strong>كل صلاحية لها سبب</strong><span>سجل موحد لمن منح الصلاحية ومتى.</span></div></article><article><ShieldCheck size={16} /><div><strong>راجع الرتب الأعلى</strong><span>قد يتجاوز دور Discord صلاحيات البوت.</span></div></article></div>
+    <PageHeading eyebrow="ACCESS CONTROL" title="الفريق والصلاحيات" description="أزلنا بيانات العرض الوهمية. هذا القسم لا يغيّر صلاحيات Discord حالياً." />
+    <article className="panel team-readiness-card">
+      <div className="panel-heading"><div><h2>أعضاء الفريق</h2><p>{selectedGuildName ?? "لا يوجد سيرفر محدد"}</p></div></div>
+      <div className="team-empty-state" role="status" aria-live="polite">
+        <span className="team-empty-state__icon"><Users size={19} /></span>
+        <strong>قائمة الفريق الحقيقية غير متصلة</strong>
+        <p>الأسماء التي ظهرت سابقاً كانت أمثلة ثابتة وليست أعضاء من سيرفرك. لن نعرض أشخاصاً أو صلاحيات تجريبية على أنها حقيقية.</p>
+        {selectedGuildName && <div className={`team-intent-status ${memberIntentEnabled ? "is-enabled" : "is-disabled"}`}><span className="team-intent-status__dot" /><strong>Server Members Intent: {memberIntentEnabled ? "مفعّل" : "غير مفعّل"}</strong></div>}
+        <small>{nextStep}</small>
+      </div>
+    </article>
+    <div className="permission-callouts"><article><KeyRound size={16} /><div><strong>لا توجد تعديلات نشطة</strong><span>لا تمنح هذه الصفحة أدوار Discord ولا تحفظ صلاحيات الفريق.</span></div></article><article><ShieldCheck size={16} /><div><strong>بيانات حقيقية فقط</strong><span>لن نغيّر أي إعداد في Discord من دون ربط فعلي وواضح.</span></div></article></div>
   </>;
 }
 
@@ -722,7 +739,7 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
       case "logs": return <LogsPage onToast={notify} />;
       case "lists": return <ListsPage onToast={notify} />;
       case "backups": return <BackupsPage onToast={notify} />;
-      case "team": return <TeamPage onToast={notify} />;
+      case "team": return <TeamPage selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} memberIntentEnabled={discordConnection.data.bot.memberIntentEnabled ?? false} />;
       case "plans": return <PlansPage onToast={notify} />;
       case "settings": return <SettingsPage onToast={notify} />;
       default: return <OverviewPage onSection={setActive} onToast={notify} emergency={emergency} onPanic={() => setPanicOpen(true)} />;
