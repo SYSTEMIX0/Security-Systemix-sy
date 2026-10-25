@@ -110,6 +110,7 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
   const [provisionGuildId, setProvisionGuildId] = useState("");
   const [subscriptionPlan, setSubscriptionPlan] = useState<"monthly" | "annual">("monthly");
   const [subscriptionNote, setSubscriptionNote] = useState("");
+  const [pendingProvision, setPendingProvision] = useState<"logs" | "tickets" | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -229,14 +230,21 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
     }
   };
 
-  const provisionGuild = async (kind: "logs" | "tickets") => {
+  const requestGuildProvision = (kind: "logs" | "tickets") => {
     const guildId = provisionGuildId.trim();
-    const label = kind === "logs" ? "قنوات اللوقات الأربع" : "قنوات لوحات التذاكر الثلاث";
     if (!/^\d{17,20}$/.test(guildId) || submitting) {
       setError("اختر سيرفراً مثبتاً فيه البوت قبل الإعداد.");
       return;
     }
-    if (!window.confirm(`إعداد ${label} في هذا السيرفر؟ سينشئ Systemix القنوات الناقصة فقط ويسجل العملية في سجل التدقيق.`)) return;
+    setError("");
+    setNotice("");
+    setPendingProvision(kind);
+  };
+
+  const provisionGuild = async () => {
+    const kind = pendingProvision;
+    const guildId = provisionGuildId.trim();
+    if (!kind || !/^\d{17,20}$/.test(guildId) || submitting) return;
     setSubmitting(true);
     setError("");
     setNotice("");
@@ -244,6 +252,7 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
       const result = await discordApi.provisionOwnerGuild({ guildId, kind, confirmation: "PROVISION_GUILD_CHANNELS" });
       if (kind === "logs") setNotice(`تم إعداد اللوقات. أُنشئ ${result.result.createdChannels ?? 0} قناة ناقصة وربط أنواع اللوقات الأربعة.`);
       else setNotice(`تم إعداد التذاكر. أُنشئ ${result.result.createdPanels ?? 0} لوحة ناقصة${result.result.createdSupportRole ? " ورتبة Systemix Support بلا صلاحيات" : ""}.`);
+      setPendingProvision(null);
       await refresh();
     } catch (requestError) {
       setError(failureText(requestError));
@@ -373,10 +382,11 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
             <div className="owner-subscription-form">
               <label>السيرفر<select value={provisionGuildId} onChange={(event) => setProvisionGuildId(event.currentTarget.value)}><option value="">اختر سيرفراً مثبتاً فيه البوت</option>{manageableGuilds.filter((guild) => guild.botInstalled).map((guild) => <option key={guild.id} value={guild.id}>{guild.name}</option>)}</select></label>
               <div className="owner-provision-actions">
-                <button type="button" className="button button-secondary" disabled={submitting || !provisionGuildId} onClick={() => void provisionGuild("logs")}><Database size={15} /> إعداد اللوقات</button>
-                <button type="button" className="button button-primary" disabled={submitting || !provisionGuildId} onClick={() => void provisionGuild("tickets")}><ShieldCheck size={15} /> إعداد التذاكر</button>
+                <button type="button" className="button button-secondary" disabled={submitting || !provisionGuildId} onClick={() => requestGuildProvision("logs")}><Database size={15} /> إعداد اللوقات</button>
+                <button type="button" className="button button-primary" disabled={submitting || !provisionGuildId} onClick={() => requestGuildProvision("tickets")}><ShieldCheck size={15} /> إعداد التذاكر</button>
               </div>
             </div>
+            {pendingProvision && <div className="owner-provision-confirm" role="alert"><AlertTriangle size={15} /><span>سيُنشئ Systemix {pendingProvision === "logs" ? "قنوات اللوقات الأربع" : "لوحات التذاكر الثلاث ورُتبة دعم خالية من الصلاحيات عند الحاجة"} في السيرفر المختار. القنوات الموجودة لن تتكرر، وستُسجّل العملية أولاً في سجل التدقيق.</span><div><button type="button" className="button button-secondary" onClick={() => setPendingProvision(null)} disabled={submitting}>إلغاء</button><button type="button" className="button button-primary" onClick={() => void provisionGuild()} disabled={submitting}>{submitting ? <><LoaderCircle size={15} className="owner-spin" /> جارٍ الإعداد</> : "تأكيد الإنشاء"}</button></div></div>}
             <div className="owner-subscription-disclaimer"><AlertTriangle size={14} /><span>التذاكر تنشئ لوحات ثابتة في قنوات: <code>🎫・open-ticket</code> و<code>🤝・middleman-ticket</code> و<code>📈・levelup-ticket</code>. لا تمنح رتبة الدعم التي قد تُنشأ أي صلاحية بحد ذاتها.</span></div>
           </section>
         </>

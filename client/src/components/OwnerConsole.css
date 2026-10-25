@@ -88,6 +88,11 @@
 .owner-provision-panel { margin-top: 12px; }
 .owner-provision-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .owner-provision-actions .button { display: inline-flex; align-items: center; gap: 7px; min-height: 37px; font-size: 9px; }
+.owner-provision-confirm { display: flex; align-items: center; gap: 9px; margin-top: 10px; padding: 9px 10px; border: 1px solid rgba(237,189,117,.2); border-radius: 8px; background: rgba(237,189,117,.06); color: #d8c39a; font-size: 9px; line-height: 1.65; }
+.owner-provision-confirm > svg { flex: 0 0 auto; color: #edbd75; }
+.owner-provision-confirm > span { flex: 1; }
+.owner-provision-confirm > div { display: flex; flex: 0 0 auto; gap: 6px; }
+.owner-provision-confirm .button { min-height: 31px; font-size: 8px; }
 .owner-console button:focus-visible { outline: 2px solid rgba(183,244,123,.7); outline-offset: 2px; }
 @media (max-width: 760px) {
   .owner-heading { align-items: flex-start; flex-direction: column; }
@@ -113,5 +118,7 @@
   .owner-tool-actions .button { justify-content: center; min-height: 38px; }
   .owner-provision-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .owner-provision-actions .button { justify-content: center; }
+  .owner-provision-confirm { align-items: flex-start; flex-wrap: wrap; }
+  .owner-provision-confirm > div { width: 100%; justify-content: flex-end; }
 }
 @media (prefers-reduced-motion: reduce) { .owner-spin { animation: none; } }
