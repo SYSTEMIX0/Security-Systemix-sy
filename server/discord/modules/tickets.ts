@@ -110,8 +110,11 @@ function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"],
 }
 
 function findPanelCategory(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"]) {
-  return guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory
-    && (channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME)) ?? null;
+  return guild.channels.cache.find((channel) => {
+    if (channel.type !== ChannelType.GuildCategory) return false;
+    const name = channel.name.toLowerCase();
+    return channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME || name === "tickets";
+  }) ?? null;
 }
 
 function findTextChannel(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], categoryId: string, name: string): TextChannel | null {

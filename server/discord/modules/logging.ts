@@ -80,7 +80,11 @@ async function respond(interaction: LogCommandInteraction, content: string): Pro
 }
 
 function findLogCategory(guild: Guild) {
-  return guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === LOG_CATEGORY_NAME) ?? null;
+  return guild.channels.cache.find((channel) => {
+    if (channel.type !== ChannelType.GuildCategory) return false;
+    const name = channel.name.toLowerCase();
+    return channel.name === LOG_CATEGORY_NAME || name.includes("log") || channel.name.includes("السجلات");
+  }) ?? null;
 }
 
 function findLogChannel(guild: Guild, categoryId: string, name: string): TextChannel | null {
