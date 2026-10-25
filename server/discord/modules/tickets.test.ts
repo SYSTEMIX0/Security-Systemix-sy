@@ -41,4 +41,10 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('customId("tickets", "open", topic.id)');
     expect(source).toContain("ACTIVE_TICKETS_CATEGORY_NAME");
   });
+
+  it("avoids reusing a ticket category hidden from the bot", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain("hasTicketCategoryAccess(channel, member)");
+    expect(source).toContain("PermissionFlagsBits.ViewChannel");
+  });
 });

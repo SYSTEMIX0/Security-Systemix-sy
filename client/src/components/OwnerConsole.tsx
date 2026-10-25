@@ -50,7 +50,7 @@ function failureText(error: unknown): string {
   if (error.code === "owner_subscription_unavailable") return "تعذر قراءة الاشتراكات الآن. لم تُعرض أي بيانات بديلة.";
   if (error.code === "owner_guild_provision_invalid") return "اختر سيرفراً مثبتاً فيه البوت قبل إعداد اللوقات أو التذاكر.";
   if (error.code === "owner_guild_provision_unavailable") return "البوت غير متصل بهذا السيرفر الآن. حدّث الصفحة وتأكد أنه مثبت فيه.";
-  if (error.code === "owner_guild_provision_bot_permissions") return "يلزم أن يملك البوت Manage Channels وSend Messages؛ وللتذاكر لأول مرة يلزم أيضاً Manage Roles.";
+  if (error.code === "owner_guild_provision_bot_permissions") return "يلزم أن يملك البوت View Channel وManage Channels وSend Messages؛ وللتذاكر لأول مرة يلزم أيضاً Manage Roles.";
   if (error.code === "owner_guild_provision_blocked") return "تعذر إكمال الإعداد أو تدقيقه؛ لم يكتمل إنشاء القنوات الجديدة. تحقق من حالة الخدمة ثم أعد المحاولة.";
   if (error.status === 429) return "تجاوزت حد محاولات الدخول. انتظر قليلاً ثم أعد المحاولة.";
   return "تعذر إكمال الطلب. لم تُرسل أي إعدادات أو أسرار إلى المتصفح.";

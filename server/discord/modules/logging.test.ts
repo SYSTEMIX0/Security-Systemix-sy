@@ -41,4 +41,10 @@ describe("privacy-conscious logging switches", () => {
     expect(source).toContain('logsCommand("systemix-logs")');
     expect(source).toContain('interaction.commandName === "logs"');
   });
+
+  it("does not reuse a private log category that the bot cannot access", async () => {
+    const source = await readFile("server/discord/modules/logging.ts", "utf8");
+    expect(source).toContain("hasCategorySetupAccess(channel, member)");
+    expect(source).toContain("PermissionFlagsBits.ViewChannel");
+  });
 });

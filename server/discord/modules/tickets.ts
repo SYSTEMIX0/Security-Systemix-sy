@@ -10,6 +10,7 @@ import {
   type Guild,
   type GuildMember,
   type Message,
+  type CategoryChannel,
   type TextChannel,
 } from "discord.js";
 import type { ComponentInteraction, SystemixModule } from "../core/types";
@@ -115,12 +116,31 @@ function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"],
   };
 }
 
-function findPanelCategory(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"]) {
-  return guild.channels.cache.find((channel) => {
+function hasTicketCategoryAccess(category: CategoryChannel, member: GuildMember | null): boolean {
+  if (!member) return false;
+  const permissions = category.permissionsFor(member);
+  return Boolean(permissions?.has([
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.SendMessages,
+  ]));
+}
+
+function findPanelCategory(
+  guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"],
+  member: GuildMember | null,
+): CategoryChannel | null {
+  return (guild.channels.cache.find((channel) => {
     if (channel.type !== ChannelType.GuildCategory) return false;
-    const name = channel.name.toLowerCase();
-    return channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME || name === "tickets";
-  }) ?? null;
+    return (channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME)
+      && hasTicketCategoryAccess(channel, member);
+  }) ?? null) as CategoryChannel | null;
+}
+
+function findActiveTicketCategory(guild: Guild, member: GuildMember | null): CategoryChannel | null {
+  return (guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory
+    && channel.name === ACTIVE_TICKETS_CATEGORY_NAME
+    && hasTicketCategoryAccess(channel, member)) ?? null) as CategoryChannel | null;
 }
 
 function findTextChannel(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], categoryId: string, name: string): TextChannel | null {
@@ -173,7 +193,7 @@ async function handleCommand(interaction: Parameters<NonNullable<SystemixModule[
   if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
   if (!isStaffMember(interaction.member as GuildMember, config)) return respond(interaction, "هذا الأمر مخصص لفريق الدعم.");
   if (subcommand !== "panel") return respond(interaction, "الأمر غير متاح.");
-  const category = findPanelCategory(interaction.guild);
+  const category = findPanelCategory(interaction.guild, interaction.guild.members.me);
   if (!category) return respond(interaction, "لا توجد قنوات لوحات التذاكر بعد. استخدم /ticket setup أولاً.");
   if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
 
@@ -213,14 +233,14 @@ async function setupTicketSystem(
   }
 
   const me = interaction.guild.members.me;
-  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
-    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /ticket setup.");
+  if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    return respond(interaction, "لا يملك البوت حالياً View Channel وManage Channels وSend Messages. أعطه هذه الصلاحيات ثم أعد /ticket setup.");
   }
 
   const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
   const createdPanels: TextChannel[] = [];
-  let panelCategory = findPanelCategory(interaction.guild);
-  let activeCategory = interaction.guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === ACTIVE_TICKETS_CATEGORY_NAME) ?? null;
+  let panelCategory = findPanelCategory(interaction.guild, me);
+  let activeCategory = findActiveTicketCategory(interaction.guild, me);
   try {
     if (!panelCategory) {
       panelCategory = await interaction.guild.channels.create({ name: PANEL_CATEGORY_NAME, type: ChannelType.GuildCategory, reason: "Security Systemix ticket panel setup" });
@@ -270,9 +290,12 @@ async function setupTicketSystem(
     await upsertGuildSecuritySettings(interaction.guildId, member.id, next);
     return respond(interaction, "تم إعداد التذاكر. أُنشئت قنوات 🎫・open-ticket و🤝・middleman-ticket و📈・levelup-ticket، وكل قناة تحتوي زر فتح خاصاً بها.");
   } catch (error) {
-    await Promise.allSettled(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix ticket setup")));
-    await Promise.allSettled(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix ticket setup")));
+    await Promise.all(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined)));
+    await Promise.all(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined)));
     logSafe(`Ticket setup failed in guild ${interaction.guildId}`, error);
+    if (typeof error === "object" && error !== null && "code" in error && [50001, 50013].includes(Number(error.code))) {
+      return respond(interaction, "لا يستطيع البوت الوصول إلى قسم التذاكر المختار. منحه View Channel وManage Channels ثم أعد /systemix-tickets setup.");
+    }
     return respond(interaction, "لم يكتمل إعداد التذاكر. راجع صلاحيات Manage Channels وSend Messages ثم أعد الأمر؛ نُظفت القنوات الجديدة إن أمكن.");
   }
 }
@@ -282,7 +305,7 @@ export type TicketProvisionResult = { createdPanels: number; createdSupportRole:
 /** Owner-panel equivalent of `/systemix-tickets setup`; it creates no privilege-bearing role. */
 export async function provisionTicketsForGuild(guild: Guild, actorId: string): Promise<TicketProvisionResult> {
   const me = guild.members.me;
-  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+  if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
     throw new Error("bot_missing_ticket_setup_permissions");
   }
   await recordSecurityEvent({
@@ -296,9 +319,9 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
   const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
   const createdPanels: TextChannel[] = [];
   let createdSupportRole: { delete: (reason?: string) => Promise<unknown> } | null = null;
-  const existingPanelCategory = findPanelCategory(guild);
+  const existingPanelCategory = findPanelCategory(guild, me);
   let panelCategory = existingPanelCategory;
-  let activeCategory = guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === ACTIVE_TICKETS_CATEGORY_NAME) ?? null;
+  let activeCategory = findActiveTicketCategory(guild, me);
   try {
     let supportRole = [...guild.roles.cache.values()].find((role) => !role.managed && role.name.toLowerCase() === "systemix support") ?? null;
     if (!supportRole) {
@@ -351,9 +374,12 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
     await upsertGuildSecuritySettings(guild.id, actorId, next);
     return { createdPanels: createdPanels.length, createdSupportRole: Boolean(createdSupportRole), reusedPanelCategory: Boolean(existingPanelCategory) };
   } catch (error) {
-    await Promise.allSettled(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix owner ticket setup")));
-    await Promise.allSettled(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix owner ticket setup")));
+    await Promise.all(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined)));
+    await Promise.all(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined)));
     if (createdSupportRole) await createdSupportRole.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined);
+    if (typeof error === "object" && error !== null && "code" in error && [50001, 50013].includes(Number(error.code))) {
+      throw new Error("bot_missing_ticket_setup_permissions");
+    }
     throw error;
   }
 }

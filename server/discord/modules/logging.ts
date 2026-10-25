@@ -4,6 +4,7 @@ import {
   PermissionFlagsBits,
   SlashCommandBuilder,
   type AuditLogEvent,
+  type CategoryChannel,
   type Guild,
   type GuildAuditLogsEntry,
   type GuildMember,
@@ -84,12 +85,24 @@ async function respond(interaction: LogCommandInteraction, content: string): Pro
   }
 }
 
-function findLogCategory(guild: Guild) {
-  return guild.channels.cache.find((channel) => {
+function hasCategorySetupAccess(category: CategoryChannel, member: GuildMember | null): boolean {
+  if (!member) return false;
+  const permissions = category.permissionsFor(member);
+  return Boolean(permissions?.has([
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.SendMessages,
+  ]));
+}
+
+function findLogCategory(guild: Guild, member: GuildMember | null): CategoryChannel | null {
+  return (guild.channels.cache.find((channel) => {
     if (channel.type !== ChannelType.GuildCategory) return false;
     const name = channel.name.toLowerCase();
-    return channel.name === LOG_CATEGORY_NAME || name.includes("log") || channel.name.includes("السجلات");
-  }) ?? null;
+    const isSystemixCategory = channel.name === LOG_CATEGORY_NAME;
+    const isGenericLogCategory = name.includes("log") || channel.name.includes("السجلات");
+    return (isSystemixCategory || isGenericLogCategory) && hasCategorySetupAccess(channel, member);
+  }) ?? null) as CategoryChannel | null;
 }
 
 function findLogChannel(guild: Guild, categoryId: string, name: string): TextChannel | null {
@@ -103,8 +116,8 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
     return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو من يملك صلاحية Manage Server.");
   }
   const me = interaction.guild.members.me;
-  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
-    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /systemix-logs setup.");
+  if (!me?.permissions.has(PermissionFlagsBits.ViewChannel) || !me.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    return respond(interaction, "لا يملك البوت حالياً View Channel وManage Channels وSend Messages. أعطه هذه الصلاحيات ثم أعد /systemix-logs setup.");
   }
   try {
     // The audit precondition is intentionally completed before creating any channels.
@@ -122,7 +135,7 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   const createdChannels: TextChannel[] = [];
   let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
   try {
-    let category = findLogCategory(interaction.guild);
+    let category = findLogCategory(interaction.guild, me);
     const managerRoleIds = [...interaction.guild.roles.cache.values()]
       .filter((role) => !role.managed && (role.permissions.has(PermissionFlagsBits.Administrator) || role.permissions.has(PermissionFlagsBits.ManageGuild)))
       .slice(0, 20)
@@ -184,9 +197,12 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
       allowedMentions: { parse: [] },
     }).catch(() => undefined);
     return respond(interaction, "تم إنشاء وربط 4 قنوات لوق خاصة: أعضاء، رسائل، حماية، وصوت.");
-  } catch {
-    await Promise.allSettled(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix log setup")));
+  } catch (error) {
+    await Promise.all(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix log setup").catch(() => undefined)));
     if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix log setup").catch(() => undefined);
+    if (typeof error === "object" && error !== null && "code" in error && [50001, 50013].includes(Number(error.code))) {
+      return respond(interaction, "لا يستطيع البوت الوصول إلى قسم اللوقات المختار. منحه View Channel وManage Channels ثم أعد /systemix-logs setup.");
+    }
     return respond(interaction, "لم يكتمل إعداد اللوقات. راجع صلاحيات Manage Channels وSend Messages ثم أعد /systemix-logs setup؛ نُظفت القنوات الجديدة إن أمكن.");
   }
 }
@@ -209,7 +225,7 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
 
   const createdChannels: TextChannel[] = [];
   let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
-  const existingCategory = findLogCategory(guild);
+  const existingCategory = findLogCategory(guild, me);
   try {
     const category = existingCategory ?? await guild.channels.create({
       name: LOG_CATEGORY_NAME,
@@ -253,8 +269,13 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
     }).catch(() => undefined);
     return { createdChannels: createdChannels.length, reusedCategory: Boolean(existingCategory) };
   } catch (error) {
-    await Promise.allSettled(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix owner log setup")));
+    // Attach a rejection handler at creation time. A category inherited from another
+    // system may deny the bot after a channel was created; cleanup must never crash it.
+    await Promise.all(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix owner log setup").catch(() => undefined)));
     if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix owner log setup").catch(() => undefined);
+    if (typeof error === "object" && error !== null && "code" in error && [50001, 50013].includes(Number(error.code))) {
+      throw new Error("bot_missing_log_setup_permissions");
+    }
     throw error;
   }
 }
