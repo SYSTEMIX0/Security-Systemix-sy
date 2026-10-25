@@ -4,6 +4,7 @@ import {
   GatewayIntentBits,
   Options,
   Partials,
+  type ApplicationCommand,
   type ApplicationCommandData,
   type ApplicationCommandDataResolvable,
 } from "discord.js";
@@ -157,6 +158,45 @@ async function loginAndWaitForReady(bot: Client, token: string, timeoutMs = 25_0
   }
 }
 
+type CommandManagerLike = {
+  fetch: () => Promise<{
+    size: number;
+    find: (predicate: (command: ApplicationCommand) => boolean) => ApplicationCommand | undefined;
+  }>;
+  create: (data: ApplicationCommandDataResolvable) => Promise<ApplicationCommand>;
+};
+
+/** Optional Guild-only command sync for a controlled test server; global commands remain the default. */
+export function configuredCommandGuildIds(value = process.env.SYSTEMIX_COMMAND_GUILD_IDS): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(",").map((item) => item.trim()).filter((item) => /^\d{17,20}$/.test(item)))].slice(0, 5);
+}
+
+async function upsertModuleCommands(manager: CommandManagerLike): Promise<{ existing: number; created: number; updated: number }> {
+  const existing = await manager.fetch();
+  const commands = allCommands();
+  let created = 0;
+  let updated = 0;
+  for (const desired of commands) {
+    const desiredType = desired.type ?? 1;
+    const createPayload = desired as unknown as ApplicationCommandDataResolvable;
+    const editPayload = desired as unknown as Partial<ApplicationCommandData>;
+    const current = existing.find((command) => command.name === desired.name && command.type === desiredType);
+    if (!current) {
+      await manager.create(createPayload);
+      created += 1;
+      continue;
+    }
+    const before = commandFingerprint(current.toJSON() as unknown as Record<string, unknown>);
+    const after = commandFingerprint(desired as unknown as Record<string, unknown>);
+    if (before !== after) {
+      await current.edit(editPayload);
+      updated += 1;
+    }
+  }
+  return { existing: existing.size, created, updated };
+}
+
 async function registerCommands(bot: Client<true>): Promise<void> {
   if (client !== bot || commandSyncInFlight.has(bot)) return;
   commandSyncInFlight.add(bot);
@@ -170,38 +210,25 @@ async function registerCommands(bot: Client<true>): Promise<void> {
     // Upsert only commands owned by these modules. A bulk `set()` can silently delete
     // unrelated commands belonging to the same application, so stale commands are not
     // removed automatically; an explicit migration can review removals later.
-    const manager = bot.application.commands;
-    const existing = await manager.fetch();
+    const result = await upsertModuleCommands(bot.application.commands);
     if (client !== bot) return;
-    runtimeState.commandCount = existing.size;
-    const commands = allCommands();
-    let created = 0;
-    let updated = 0;
-    for (const desired of commands) {
-      if (client !== bot) return;
-      const desiredType = desired.type ?? 1;
-      const createPayload = desired as unknown as ApplicationCommandDataResolvable;
-      const editPayload = desired as unknown as Partial<ApplicationCommandData>;
-      const current = existing.find((command) => command.name === desired.name && command.type === desiredType);
-      if (!current) {
-        await manager.create(createPayload);
-        created += 1;
-        runtimeState.commandCount = existing.size + created;
-        continue;
-      }
-      const before = commandFingerprint(current.toJSON() as unknown as Record<string, unknown>);
-      const after = commandFingerprint(desired as unknown as Record<string, unknown>);
-      if (before !== after) {
-        await current.edit(editPayload);
-        updated += 1;
+    runtimeState.commandCount = result.existing + result.created;
+
+    for (const guildId of configuredCommandGuildIds()) {
+      try {
+        const guild = bot.guilds.cache.get(guildId) ?? await bot.guilds.fetch(guildId);
+        const guildResult = await upsertModuleCommands(guild.commands);
+        console.info(`[Discord] Guild slash commands synchronized: ${guildId} (${guildResult.created} created, ${guildResult.updated} updated)`);
+      } catch (error) {
+        // Global commands stay usable; a test-only Guild sync must never prevent startup.
+        logSafe(`Guild slash command synchronization failed for ${guildId}`, error);
       }
     }
-    runtimeState.commandCount = existing.size + created;
     runtimeState.commandSyncStatus = "synced";
     runtimeState.commandSyncErrorCode = null;
     if (previousSyncErrorCode && runtimeState.lastErrorCode === previousSyncErrorCode) runtimeState.lastErrorCode = null;
     commandSyncRetryAttempts.delete(bot);
-    console.info(`[Discord] Slash commands synchronized safely: ${created} created, ${updated} updated, ${existing.size - updated} retained`);
+    console.info(`[Discord] Slash commands synchronized safely: ${result.created} created, ${result.updated} updated, ${result.existing - result.updated} retained`);
   } catch (error) {
     if (client !== bot) return;
     const errorCode = safeDiscordErrorCode(error);

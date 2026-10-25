@@ -6,7 +6,7 @@
 ## ما تم التحقق منه
 
 - `pnpm check` ناجح.
-- `pnpm test`: **125 اختباراً ناجحاً عبر 35 ملف اختبار**.
+- `pnpm test`: **126 اختباراً ناجحاً عبر 35 ملف اختبار**.
 - `pnpm build` ناجح.
 - نُشر commit `4fb13781ff6ac398ca5b5d90c08cd4694a633645` على خدمة Render `Security-Systemix-sy` ووصل إلى حالة **live** في 25 أكتوبر 2026.
 - فحص الإنتاج بعد النشر أعاد `/api/health` بحالة `200` و`status: ok`، وأعاد `/api/ready` بحالة `200` و`status: ready` و`migration: ready`.
