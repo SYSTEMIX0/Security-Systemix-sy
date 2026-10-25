@@ -40,8 +40,21 @@ export async function runStartupMigrations(env: NodeJS.ProcessEnv = process.env)
     await migrate(db, { migrationsFolder: path.resolve(process.cwd(), "drizzle") });
     migrationState = "ready";
     console.log("[Systemix] Database migrations: up to date");
-  } catch {
+  } catch (error) {
     migrationState = "failed";
-    console.error("[Systemix] Database migrations failed; settings saving stays disabled until fixed");
+    const errorFields = error && typeof error === "object"
+      ? error as unknown as Record<string, unknown>
+      : {};
+    const causeFields = errorFields.cause && typeof errorFields.cause === "object"
+      ? errorFields.cause as Record<string, unknown>
+      : {};
+    const safeCode = (value: unknown) =>
+      typeof value === "string" && /^[A-Z0-9_.-]{1,80}$/i.test(value) ? value : undefined;
+    console.error("[Systemix] Database migrations failed; settings saving stays disabled until fixed", {
+      name: error instanceof Error ? error.name : safeCode(errorFields.name),
+      code: safeCode(errorFields.code) ?? safeCode(causeFields.code),
+      errno: typeof errorFields.errno === "number" ? errorFields.errno : typeof causeFields.errno === "number" ? causeFields.errno : undefined,
+      sqlState: safeCode(errorFields.sqlState) ?? safeCode(causeFields.sqlState),
+    });
   }
 }
