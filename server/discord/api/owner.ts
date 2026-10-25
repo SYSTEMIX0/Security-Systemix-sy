@@ -141,9 +141,17 @@ export function registerOwnerApi(app: Express): void {
     }
     // This endpoint is owner-only. It derives candidates from the active bot
     // connection rather than an OAuth guild list that can be stale after an invite.
-    const guilds = [...client.guilds.cache.values()]
-      .map((guild) => ({ id: guild.id, name: guild.name }))
-      .sort((left, right) => left.name.localeCompare(right.name, "ar"));
+    // Fetch explicitly as a resumed Gateway session may report a guild count before
+    // its in-memory cache has been repopulated for a dashboard request.
+    let guilds;
+    try {
+      guilds = [...(await client.guilds.fetch()).values()]
+        .map((guild) => ({ id: guild.id, name: guild.name }))
+        .sort((left, right) => left.name.localeCompare(right.name, "ar"));
+    } catch {
+      res.status(503).json({ error: "owner_guild_provision_unavailable" });
+      return;
+    }
     res.json({ guilds });
   }));
   app.get("/api/owner/subscriptions", asyncRoute(async (req, res) => {
@@ -194,8 +202,14 @@ export function registerOwnerApi(app: Express): void {
       return;
     }
     const client = getDiscordClient();
-    const guild = client?.guilds.cache.get(parsed.data.guildId);
-    if (!client || getDiscordBotState().status !== "ready" || !guild) {
+    if (!client || getDiscordBotState().status !== "ready") {
+      res.status(409).json({ error: "owner_guild_provision_unavailable" });
+      return;
+    }
+    let guild;
+    try {
+      guild = client.guilds.cache.get(parsed.data.guildId) ?? await client.guilds.fetch(parsed.data.guildId);
+    } catch {
       res.status(409).json({ error: "owner_guild_provision_unavailable" });
       return;
     }

@@ -259,8 +259,8 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
     setNotice("");
     try {
       const result = await discordApi.provisionOwnerGuild({ guildId, kind, confirmation: "PROVISION_GUILD_CHANNELS" });
-      if (kind === "logs") setNotice(`تم إعداد اللوقات. أُنشئ ${result.result.createdChannels ?? 0} قناة ناقصة وربط أنواع اللوقات الأربعة.`);
-      else setNotice(`تم إعداد التذاكر. أُنشئ ${result.result.createdPanels ?? 0} لوحة ناقصة${result.result.createdSupportRole ? " ورتبة Systemix Support بلا صلاحيات" : ""}.`);
+      if (kind === "logs") setNotice(`تم إعداد اللوقات. أُنشئ ${result.result.createdChannels ?? 0} قناة ناقصة، بينها لوق تذاكر مستقل.`);
+      else setNotice(`تم إعداد التذاكر. أُنشئ ${result.result.createdPanels ?? 0} لوحة أو مركز تذاكر ناقص${result.result.createdSupportRole ? " ورتبة Systemix Support بلا صلاحيات" : ""}.`);
       setPendingProvision(null);
       await refresh();
     } catch (requestError) {
@@ -395,8 +395,8 @@ export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfi
                 <button type="button" className="button button-primary" disabled={submitting || !provisionGuildId} onClick={() => requestGuildProvision("tickets")}><ShieldCheck size={15} /> إعداد التذاكر</button>
               </div>
             </div>
-            {pendingProvision && <div className="owner-provision-confirm" role="alert"><AlertTriangle size={15} /><span>سيُنشئ Systemix {pendingProvision === "logs" ? "قنوات اللوقات الأربع" : "لوحات التذاكر الثلاث ورُتبة دعم خالية من الصلاحيات عند الحاجة"} في السيرفر المختار. القنوات الموجودة لن تتكرر، وستُسجّل العملية أولاً في سجل التدقيق.</span><div><button type="button" className="button button-secondary" onClick={() => setPendingProvision(null)} disabled={submitting}>إلغاء</button><button type="button" className="button button-primary" onClick={() => void provisionGuild()} disabled={submitting}>{submitting ? <><LoaderCircle size={15} className="owner-spin" /> جارٍ الإعداد</> : "تأكيد الإنشاء"}</button></div></div>}
-            <div className="owner-subscription-disclaimer"><AlertTriangle size={14} /><span>التذاكر تنشئ لوحات ثابتة في قنوات: <code>🎫・open-ticket</code> و<code>🤝・middleman-ticket</code> و<code>📈・levelup-ticket</code>. لا تمنح رتبة الدعم التي قد تُنشأ أي صلاحية بحد ذاتها.</span></div>
+            {pendingProvision && <div className="owner-provision-confirm" role="alert"><AlertTriangle size={15} /><span>سيُنشئ Systemix {pendingProvision === "logs" ? "خمس قنوات لوق، بينها 🎟️・ticket-logs" : "مركز 🎟️・ticket-center ولوحات الأزرار السريعة ورُتبة دعم خالية من الصلاحيات عند الحاجة"} في السيرفر المختار. القنوات الموجودة لن تتكرر، وستُسجّل العملية أولاً في سجل التدقيق.</span><div><button type="button" className="button button-secondary" onClick={() => setPendingProvision(null)} disabled={submitting}>إلغاء</button><button type="button" className="button button-primary" onClick={() => void provisionGuild()} disabled={submitting}>{submitting ? <><LoaderCircle size={15} className="owner-spin" /> جارٍ الإعداد</> : "تأكيد الإنشاء"}</button></div></div>}
+            <div className="owner-subscription-disclaimer"><AlertTriangle size={14} /><span>التذاكر تنشئ مركز <code>🎟️・ticket-center</code> ولوحات الأزرار السريعة، ويمكنك تخصيص الأقسام من «إدارة المجتمع». لا تمنح رتبة الدعم التي قد تُنشأ أي صلاحية بحد ذاتها.</span></div>
           </section>
         </>
       )}
