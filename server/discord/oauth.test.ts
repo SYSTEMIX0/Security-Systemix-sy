@@ -17,7 +17,7 @@ describe("Discord OAuth redirect URI", () => {
 
   it("uses the selected Systemix Discord application by default", () => {
     delete process.env.DISCORD_CLIENT_ID;
-    expect(discordClientId()).toBe("1562540070802563162");
+    expect(discordClientId()).toBe("1553314620477804544");
     process.env.DISCORD_CLIENT_ID = "12345678901234567";
     expect(discordClientId()).toBe("12345678901234567");
   });
@@ -31,14 +31,14 @@ describe("Discord OAuth redirect URI", () => {
   it("rejects arbitrary HTTP callbacks and query strings", () => {
     process.env.SYSTEMIX_ALLOW_LOCAL_HTTP_REDIRECT = "true";
     process.env.DISCORD_REDIRECT_URI = "http://example.com/callback";
-    expect(discordRedirectUri()).toBe("https://systemix-hc3hycno.manus.space/api/discord/callback");
+    expect(discordRedirectUri()).toBe("https://security-systemix-sy.onrender.com/api/discord/callback");
     process.env.DISCORD_REDIRECT_URI = "https://example.com/callback?next=https://evil.example";
-    expect(discordRedirectUri()).toBe("https://systemix-hc3hycno.manus.space/api/discord/callback");
+    expect(discordRedirectUri()).toBe("https://security-systemix-sy.onrender.com/api/discord/callback");
   });
 
   it("keeps a production redirect HTTPS even when a local HTTP value is configured", () => {
     process.env.SYSTEMIX_ALLOW_LOCAL_HTTP_REDIRECT = "false";
     process.env.DISCORD_REDIRECT_URI = "http://127.0.0.1:3000/api/discord/callback";
-    expect(discordRedirectUri()).toBe("https://systemix-hc3hycno.manus.space/api/discord/callback");
+    expect(discordRedirectUri()).toBe("https://security-systemix-sy.onrender.com/api/discord/callback");
   });
 });

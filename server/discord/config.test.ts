@@ -42,13 +42,13 @@ describe("risk signals", () => {
   });
 
   it("validates Discord snowflakes without coercing numbers", () => {
-    expect(isSnowflake("1562540070802563162")).toBe(true);
-    expect(isSnowflake(1562540070802563162)).toBe(false);
+    expect(isSnowflake("1553314620477804544")).toBe(true);
+    expect(isSnowflake(1553314620477804544)).toBe(false);
   });
 
   it("rejects a valid bot ID that belongs to a different Discord application", () => {
-    expect(matchesDiscordApplicationId("1562540070802563162", "1562540070802563162")).toBe(true);
-    expect(matchesDiscordApplicationId("1562540070802563162", "12345678901234567")).toBe(false);
+    expect(matchesDiscordApplicationId("1553314620477804544", "1553314620477804544")).toBe(true);
+    expect(matchesDiscordApplicationId("1553314620477804544", "12345678901234567")).toBe(false);
     expect(matchesDiscordApplicationId("not-a-snowflake", "12345678901234567")).toBe(false);
   });
 });

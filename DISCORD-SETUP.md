@@ -4,7 +4,7 @@
 
 ## 1. ربط Discord OAuth
 
-1. افتح Discord Developer Portal للتطبيق ذي Application ID `1562540070802563162`.
+1. افتح Discord Developer Portal للتطبيق ذي Application ID `1553314620477804544` (**Security Systemix**).
 2. في **OAuth2 → General → Redirects** أضف الرابط التالي كما هو تماماً:
    `https://security-systemix-sy.onrender.com/api/discord/callback`
 3. في Render → خدمة **Security-Systemix-sy** → **Environment** تأكد من وجود `DISCORD_CLIENT_ID` و`DISCORD_CLIENT_SECRET` و`DISCORD_REDIRECT_URI`، وأن قيمة redirect تطابق الرابط أعلاه حرفياً. خزّن Client Secret في Render فقط.
@@ -38,7 +38,7 @@
 
 | المفتاح | ما يوضع فيه |
 | --- | --- |
-| `DISCORD_CLIENT_ID` | `1562540070802563162` |
+| `DISCORD_CLIENT_ID` | `1553314620477804544` |
 | `DISCORD_CLIENT_SECRET` | Client Secret من تطبيق Discord نفسه |
 | `DISCORD_REDIRECT_URI` | `https://security-systemix-sy.onrender.com/api/discord/callback` |
 | `DISCORD_BOT_TOKEN` | Bot Token من تبويب Bot في Developer Portal |

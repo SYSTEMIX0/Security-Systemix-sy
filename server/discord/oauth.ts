@@ -15,7 +15,7 @@ import { discordRedirectUri } from "./redirect";
 export { discordRedirectUri } from "./redirect";
 
 const DISCORD_API_BASE = "https://discord.com/api/v10";
-const DEFAULT_CLIENT_ID = "1562540070802563162";
+const DEFAULT_CLIENT_ID = "1553314620477804544";
 const GUILD_ADMINISTRATOR = 0x8n;
 const GUILD_MANAGE = 0x20n;
 

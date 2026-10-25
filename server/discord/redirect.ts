@@ -1,4 +1,4 @@
-const DEFAULT_REDIRECT_URI = "https://systemix-hc3hycno.manus.space/api/discord/callback";
+const DEFAULT_REDIRECT_URI = "https://security-systemix-sy.onrender.com/api/discord/callback";
 
 export function resolveDiscordRedirectUri(configuredUri: string | undefined, allowLocalHttp: boolean): string {
   const configured = configuredUri?.trim() || DEFAULT_REDIRECT_URI;
