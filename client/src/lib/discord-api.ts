@@ -61,6 +61,22 @@ export type RuntimeReadiness = {
   };
 };
 
+type RuntimeReadinessPayload = {
+  status: RuntimeReadiness["status"];
+  code?: RuntimeReadiness["code"];
+  migration: RuntimeReadiness["migration"]["state"];
+  migrationMode: RuntimeReadiness["migration"]["mode"];
+};
+
+export function normalizeRuntimeReadiness(payload: RuntimeReadinessPayload): RuntimeReadiness {
+  return {
+    ready: payload.status === "ready" && payload.migration === "ready",
+    status: payload.status,
+    ...(payload.code ? { code: payload.code } : {}),
+    migration: { state: payload.migration, mode: payload.migrationMode },
+  };
+}
+
 export type DiscordGuildSnapshot = {
   settings: GuildSecurityConfig;
   botInstalled: boolean;
@@ -148,7 +164,7 @@ export const discordApi = {
   },
   loadOwnerStatus: () => readJson<OwnerPanelStatus>("/api/owner/status"),
   loadOwnerOverview: () => readJson<OwnerPanelOverview>("/api/owner/overview"),
-  loadReadiness: () => readJson<RuntimeReadiness>("/api/ready", undefined, [503]),
+  loadReadiness: async () => normalizeRuntimeReadiness(await readJson<RuntimeReadinessPayload>("/api/ready", undefined, [503])),
   async loginOwner(password: string) {
     return readJson<{ authenticated: true }>("/api/owner/login", {
       method: "POST",
