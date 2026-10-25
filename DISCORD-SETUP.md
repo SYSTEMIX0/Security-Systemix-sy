@@ -46,7 +46,7 @@
 | `DATABASE_CA_CERT` | شهادة CA بصيغة PEM من Aiven عند استخدامه؛ لا تضع فيها رابط الاتصال أو كلمة المرور |
 | `SYSTEMIX_AUTO_MIGRATE` | `true` على Render بعد توفير قاعدة MySQL |
 | `SYSTEMIX_PRIVILEGED_INTENTS` | `auto` عادةً؛ يختار الـIntents التي يقبلها Discord |
-| `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` | اتركه `false` الآن؛ لا تغيّره قبل جاهزية القاعدة والاختبار والاستضافة المستمرة |
+| `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` | `true` لتشغيل البوت في الإنتاج، و`false` لإيقافه. لا تستخدم `true` إلا بعد جاهزية القاعدة واختبار السيرفر والاستضافة المستمرة |
 | `MANUS_JWT_SECRET` | سر جلسة عشوائي طويل؛ أنشئه من Render Generate، ولا ترسله لأحد |
 
 لا تحتاج `MANUS_OAUTH_API_URL` لتسجيل دخول Discord على Render؛ تسجيل Manus اختياري ومخصص لاستضافة Manus.
