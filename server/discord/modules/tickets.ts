@@ -89,10 +89,15 @@ function supportRoles(guild: Parameters<NonNullable<SystemixModule["onCommand"]>
   return roleIds.map((id) => guild.roles.cache.get(id)).filter((role): role is NonNullable<typeof role> => Boolean(role));
 }
 
-const command = new SlashCommandBuilder().setName("ticket").setDescription("إدارة التذاكر")
-  .addSubcommand((sub) => sub.setName("panel").setDescription("نشر أو تحديث لوحة فتح التذاكر"))
-  .addSubcommand((sub) => sub.setName("setup").setDescription("إعداد نظام التذاكر وإنشاء لوحته تلقائياً")
-    .addRoleOption((option) => option.setName("support-role").setDescription("رتبة فريق الدعم التي ترى التذاكر").setRequired(true)));
+function ticketCommand(name: "ticket" | "systemix-tickets") {
+  return new SlashCommandBuilder().setName(name).setDescription("إدارة التذاكر")
+    .addSubcommand((sub) => sub.setName("panel").setDescription("نشر أو تحديث لوحة فتح التذاكر"))
+    .addSubcommand((sub) => sub.setName("setup").setDescription("إعداد نظام التذاكر وإنشاء لوحته تلقائياً")
+      .addRoleOption((option) => option.setName("support-role").setDescription("رتبة فريق الدعم التي ترى التذاكر").setRequired(true)));
+}
+
+const command = ticketCommand("ticket");
+const systemixTicketsCommand = ticketCommand("systemix-tickets");
 
 function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"], topic: Awaited<ReturnType<typeof getGuildConfig>>["tickets"]["topics"][number]) {
   const button = new ButtonBuilder()
@@ -373,7 +378,7 @@ async function onComponent(interaction: ComponentInteraction) {
 export const ticketsModule: SystemixModule = {
   name: "tickets",
   implemented: true,
-  commands: [command.toJSON()],
+  commands: [command.toJSON(), systemixTicketsCommand.toJSON()],
   onCommand: handleCommand,
   componentPrefix: "tickets",
   onComponent,

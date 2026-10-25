@@ -65,8 +65,13 @@ async function writeLog(guild: Guild, config: GuildSecurityConfig, input: {
   }
 }
 
-const command = new SlashCommandBuilder().setName("logs").setDescription("إعداد قنوات سجل Systemix")
-  .addSubcommand((subcommand) => subcommand.setName("setup").setDescription("إنشاء وربط قنوات اللوقات تلقائياً"));
+function logsCommand(name: "logs" | "systemix-logs") {
+  return new SlashCommandBuilder().setName(name).setDescription("إعداد قنوات سجل Systemix")
+    .addSubcommand((subcommand) => subcommand.setName("setup").setDescription("إنشاء وربط قنوات اللوقات تلقائياً"));
+}
+
+const command = logsCommand("logs");
+const systemixLogsCommand = logsCommand("systemix-logs");
 
 type LogCommandInteraction = Parameters<NonNullable<SystemixModule["onCommand"]>>[0];
 
@@ -298,7 +303,7 @@ async function onVoiceState(before: VoiceState, after: VoiceState): Promise<void
 export const loggingModule: SystemixModule = {
   name: "logging",
   implemented: true,
-  commands: [command.toJSON()],
+  commands: [command.toJSON(), systemixLogsCommand.toJSON()],
   onCommand: handleCommand,
   onMemberAdd,
   onMemberRemove,

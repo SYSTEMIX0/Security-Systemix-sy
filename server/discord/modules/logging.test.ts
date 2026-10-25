@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { defaultGuildSecurityConfig } from "../config";
 import { loggingDestination, loggingEnabled, SYSTEMIX_LOG_CHANNELS } from "./logging";
@@ -33,5 +34,10 @@ describe("privacy-conscious logging switches", () => {
     expect(Object.values(SYSTEMIX_LOG_CHANNELS)).toEqual([
       "👥・member-logs", "💬・message-logs", "🛡️・security-logs", "🔊・voice-logs",
     ]);
+  });
+
+  it("keeps a unique Systemix logs command when an old /logs command exists", async () => {
+    const source = await readFile("server/discord/modules/logging.ts", "utf8");
+    expect(source).toContain('logsCommand("systemix-logs")');
   });
 });

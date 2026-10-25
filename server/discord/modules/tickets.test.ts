@@ -37,6 +37,7 @@ describe("ticket safety helpers", () => {
     const source = await readFile("server/discord/modules/tickets.ts", "utf8");
     expect(source).toContain('sub.setName("setup")');
     expect(source).toContain('option.setName("support-role")');
+    expect(source).toContain('ticketCommand("systemix-tickets")');
     expect(source).toContain('customId("tickets", "open", topic.id)');
     expect(source).toContain("ACTIVE_TICKETS_CATEGORY_NAME");
   });
