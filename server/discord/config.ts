@@ -145,6 +145,7 @@ const loggingSchema = z.object({
   messageChannelId: nid,
   securityChannelId: nid,
   voiceChannelId: nid,
+  ticketChannelId: nid,
   memberJoinLeave: z.boolean(),
   messageDelete: z.boolean(),
   messageEdit: z.boolean(),
@@ -153,6 +154,7 @@ const loggingSchema = z.object({
   channelChanges: z.boolean(),
   roleChanges: z.boolean(),
   voice: z.boolean(),
+  ticketEvents: z.boolean(),
   moderation: z.boolean(),
   ignoredChannelIds: ids(50),
 });
@@ -427,6 +429,7 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     messageChannelId: null,
     securityChannelId: null,
     voiceChannelId: null,
+    ticketChannelId: null,
     memberJoinLeave: true,
     messageDelete: true,
     messageEdit: true,
@@ -435,6 +438,7 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     channelChanges: true,
     roleChanges: true,
     voice: false,
+    ticketEvents: true,
     moderation: true,
     ignoredChannelIds: [],
   },
@@ -460,9 +464,14 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     panelDescription: "اختر نوع طلبك وسيفتح لك فريق الدعم تذكرة خاصة.",
     openMessage: "أهلاً {user}، وصلت تذكرتك. اشرح طلبك بالتفصيل وسيرد عليك الفريق قريباً.",
     topics: [
-      { id: "open-ticket", label: "فتح تذكرة", emoji: "🎫", description: "دعم عام أو طلب مساعدة" },
+      { id: "technical-support", label: "الدعم الفني", emoji: "🛠️", description: "مشكلة تقنية أو مساعدة عامة" },
+      { id: "admin-complaint", label: "شكوى على إداري", emoji: "📣", description: "بلاغ خاص عن تعامل إداري" },
+      { id: "punishment-appeal", label: "اعتراض على عقوبة", emoji: "⚖️", description: "طلب مراجعة إسكات أو طرد أو حظر" },
+      { id: "purchase-request", label: "طلب شراء أو اشتراك", emoji: "🛒", description: "استفسار عن خدمة أو باقة" },
+      { id: "compensation-request", label: "طلب تعويض", emoji: "🎁", description: "طلب مراجعة تعويض أو استرجاع" },
       { id: "middleman-ticket", label: "تذكرة وسيط", emoji: "🤝", description: "طلب إشراف وسيط على عملية" },
       { id: "levelup-ticket", label: "تذكرة رفع مستوى", emoji: "📈", description: "طلب متعلق بالمستويات والمكافآت" },
+      { id: "open-ticket", label: "طلب آخر", emoji: "🎫", description: "طلب لا يندرج تحت الأقسام الأخرى" },
     ],
   },
   welcome: {
@@ -540,9 +549,12 @@ export function normalizeGuildSecurityConfig(value: unknown): GuildSecurityConfi
     : null;
   const legacyTopics = storedTopics?.length === 2
     && storedTopics.every((topic) => isPlainObject(topic) && (topic.id === "support" || topic.id === "report"));
-  if (legacyTopics && isPlainObject(merged.tickets)) {
-    // Earlier previews exposed only support/report and had no editor for topics.
-    // Replace that known placeholder set with the real product ticket types.
+  const previousCoreTopics = storedTopics?.length === 3
+    && storedTopics.every((topic) => isPlainObject(topic)
+      && ["open-ticket", "middleman-ticket", "levelup-ticket"].includes(String(topic.id)));
+  if ((legacyTopics || previousCoreTopics) && isPlainObject(merged.tickets)) {
+    // Earlier versions shipped placeholders or only three fixed topics. Upgrade those
+    // known defaults to the commercial centre without overwriting a custom topic list.
     merged.tickets.topics = defaultGuildSecurityConfig.tickets.topics;
   }
   merged.version = 2;

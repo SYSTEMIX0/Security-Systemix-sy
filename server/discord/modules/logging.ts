@@ -20,14 +20,15 @@ import type { SystemixModule } from "../core/types";
 import { monitoredAuditActionNames } from "../security";
 import { recordSecurityEvent, upsertGuildSecuritySettings } from "../../db";
 
-type LogSwitch = "memberJoinLeave" | "messageDelete" | "messageEdit" | "memberRoles" | "nicknames" | "channelChanges" | "roleChanges" | "voice" | "moderation";
+export type LogSwitch = "memberJoinLeave" | "messageDelete" | "messageEdit" | "memberRoles" | "nicknames" | "channelChanges" | "roleChanges" | "voice" | "ticketEvents" | "moderation";
 
-/** Four private Discord channels created by `/logs setup`. */
+/** Private Discord channels created by `/systemix-logs setup`. */
 export const SYSTEMIX_LOG_CHANNELS = {
   member: "👥・member-logs",
   message: "💬・message-logs",
   security: "🛡️・security-logs",
   voice: "🔊・voice-logs",
+  ticket: "🎟️・ticket-logs",
 } as const;
 
 const LOG_CATEGORY_NAME = "📋・systemix-logs";
@@ -41,6 +42,7 @@ export function loggingDestination(config: GuildSecurityConfig, feature: LogSwit
   const specialised = feature === "memberJoinLeave" ? config.logging.memberChannelId
     : feature === "messageDelete" || feature === "messageEdit" ? config.logging.messageChannelId
       : feature === "voice" ? config.logging.voiceChannelId
+        : feature === "ticketEvents" ? config.logging.ticketChannelId
         : config.logging.securityChannelId;
   return specialised ?? config.logging.channelId ?? config.general.securityLogChannelId;
 }
@@ -126,7 +128,7 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
       eventType: "logging:setup_precondition",
       actorId: member.id,
       severity: "medium",
-      details: { requested: "four_private_log_channels" },
+      details: { requested: "five_private_log_channels" },
     });
   } catch {
     return respond(interaction, "تعذر توثيق إعداد اللوقات في سجل التدقيق؛ لم يتم إنشاء أي قناة.");
@@ -174,6 +176,7 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
         messageChannelId: channels.message.id,
         securityChannelId: channels.security.id,
         voiceChannelId: channels.voice.id,
+        ticketChannelId: channels.ticket.id,
         memberJoinLeave: true,
         messageDelete: true,
         messageEdit: true,
@@ -182,6 +185,7 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
         channelChanges: true,
         roleChanges: true,
         voice: true,
+        ticketEvents: true,
         moderation: true,
         ignoredChannelIds: Object.values(channels).map((channel) => channel.id),
       },
@@ -190,13 +194,13 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
     await channels.security.send({
       embeds: [systemixEmbed({
         title: "تم تشغيل اللوقات",
-        description: "تم ربط قنوات العضوية والرسائل والحماية والصوت. هذه القنوات للقراءة فقط وتبدأ بإظهار الأحداث الجديدة.",
+        description: "تم ربط قنوات العضوية والرسائل والحماية والصوت والتذاكر. هذه القنوات للقراءة فقط وتبدأ بإظهار الأحداث الجديدة.",
         tone: "success",
         config: next,
       })],
       allowedMentions: { parse: [] },
     }).catch(() => undefined);
-    return respond(interaction, "تم إنشاء وربط 4 قنوات لوق خاصة: أعضاء، رسائل، حماية، وصوت.");
+    return respond(interaction, "تم إنشاء وربط 5 قنوات لوق خاصة: أعضاء، رسائل، حماية، صوت، وتذاكر.");
   } catch (error) {
     await Promise.all(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix log setup").catch(() => undefined)));
     if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix log setup").catch(() => undefined);
@@ -220,7 +224,7 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
     eventType: "logging:owner_setup_precondition",
     actorId,
     severity: "medium",
-    details: { requested: "four_private_log_channels" },
+    details: { requested: "five_private_log_channels" },
   });
 
   const createdChannels: TextChannel[] = [];
@@ -257,14 +261,15 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
       logging: {
         enabled: true, channelId: channels.security.id, memberChannelId: channels.member.id,
         messageChannelId: channels.message.id, securityChannelId: channels.security.id, voiceChannelId: channels.voice.id,
+        ticketChannelId: channels.ticket.id,
         memberJoinLeave: true, messageDelete: true, messageEdit: true, memberRoles: true, nicknames: true,
-        channelChanges: true, roleChanges: true, voice: true, moderation: true,
+        channelChanges: true, roleChanges: true, voice: true, ticketEvents: true, moderation: true,
         ignoredChannelIds: Object.values(channels).map((channel) => channel.id),
       },
     });
     await upsertGuildSecuritySettings(guild.id, actorId, next);
     await channels.security.send({
-      embeds: [systemixEmbed({ title: "تم تشغيل اللوقات", description: "تم ربط قنوات العضوية والرسائل والحماية والصوت.", tone: "success", config: next })],
+      embeds: [systemixEmbed({ title: "تم تشغيل اللوقات", description: "تم ربط قنوات العضوية والرسائل والحماية والصوت والتذاكر.", tone: "success", config: next })],
       allowedMentions: { parse: [] },
     }).catch(() => undefined);
     return { createdChannels: createdChannels.length, reusedCategory: Boolean(existingCategory) };

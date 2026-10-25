@@ -25,14 +25,16 @@ describe("privacy-conscious logging switches", () => {
         messageChannelId: "messages",
         securityChannelId: "security",
         voiceChannelId: "voice",
+        ticketChannelId: "tickets",
       },
     };
     expect(loggingDestination(config, "memberJoinLeave")).toBe("members");
     expect(loggingDestination(config, "messageDelete")).toBe("messages");
     expect(loggingDestination(config, "roleChanges")).toBe("security");
     expect(loggingDestination(config, "voice")).toBe("voice");
+    expect(loggingDestination(config, "ticketEvents")).toBe("tickets");
     expect(Object.values(SYSTEMIX_LOG_CHANNELS)).toEqual([
-      "👥・member-logs", "💬・message-logs", "🛡️・security-logs", "🔊・voice-logs",
+      "👥・member-logs", "💬・message-logs", "🛡️・security-logs", "🔊・voice-logs", "🎟️・ticket-logs",
     ]);
   });
 
