@@ -157,8 +157,12 @@ export function requireBotGuild(guildId: string): Guild {
 }
 
 export async function loadGuildConfig(guildId: string): Promise<GuildSecurityConfig> {
-  const row = await db.getGuildSecuritySettings(guildId);
-  return normalizeGuildSecurityConfig(row?.settings ?? defaultGuildSecurityConfig);
+  try {
+    const row = await db.getGuildSecuritySettings(guildId);
+    return normalizeGuildSecurityConfig(row?.settings ?? defaultGuildSecurityConfig);
+  } catch {
+    throw new ApiError(503, "guild_config_unavailable");
+  }
 }
 
 export function parseLimit(value: unknown, fallback: number, max: number): number {

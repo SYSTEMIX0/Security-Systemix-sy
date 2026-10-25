@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   guildSecuritySettings,
@@ -31,6 +31,9 @@ const monitoredAntiNukeEventTypes = [
 ] as const;
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let pingCache: { expiresAt: number; result: boolean } | undefined;
+let pingInFlight: Promise<boolean> | undefined;
+const PING_CACHE_TTL_MS = 2_000;
 const SETTINGS_CACHE_TTL_MS = 5_000;
 const MAX_SETTINGS_CACHE_ENTRIES = 10_000;
 const guildSettingsCache = new Map<string, { expiresAt: number; row: GuildSecuritySettingsRow | undefined }>();
@@ -54,6 +57,32 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/** Cached, non-mutating connectivity check; deliberately exposes only a boolean. */
+export async function pingDatabase(): Promise<boolean> {
+  const now = Date.now();
+  if (pingCache && pingCache.expiresAt > now) return pingCache.result;
+  if (pingInFlight) return pingInFlight;
+  pingInFlight = (async () => {
+    let result = false;
+    try {
+      const db = await getDb();
+      if (db) {
+        await db.execute(sql`SELECT 1`);
+        result = true;
+      }
+    } catch {
+      result = false;
+    }
+    pingCache = { expiresAt: Date.now() + PING_CACHE_TTL_MS, result };
+    return result;
+  })();
+  try {
+    return await pingInFlight;
+  } finally {
+    pingInFlight = undefined;
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {

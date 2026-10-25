@@ -1,0 +1,86 @@
+.owner-console { display: grid; gap: 14px; padding-bottom: 16px; }
+.owner-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; padding: 14px 0 3px; }
+.owner-heading h1 { margin: 0; color: #eef4ef; font-size: clamp(22px, 2vw, 28px); font-weight: 680; letter-spacing: -.035em; }
+.owner-heading p { max-width: 760px; margin: 6px 0 0; color: #93a197; font-size: 11px; line-height: 1.75; }
+.owner-eyebrow { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 5px; color: #a6bd9a; font-size: 8px; font-weight: 700; letter-spacing: .14em; }
+.owner-refresh { min-width: 132px; }
+.owner-spin { animation: owner-spin .85s linear infinite; }
+@keyframes owner-spin { to { transform: rotate(360deg); } }
+.owner-alert { display: flex; align-items: flex-start; gap: 9px; border-radius: 9px; padding: 10px 12px; font-size: 10px; line-height: 1.65; }
+.owner-alert svg { flex: 0 0 auto; margin-top: 1px; }
+.owner-alert-error { border: 1px solid rgba(255,119,121,.2); background: rgba(255,119,121,.06); color: #e8a19d; }
+.owner-alert-success { border: 1px solid rgba(183,244,123,.17); background: rgba(183,244,123,.05); color: #c1e99a; }
+.owner-state { display: flex; align-items: center; gap: 10px; min-height: 72px; color: #a4b4a7; font-size: 11px; }
+.owner-setup-card, .owner-gate-card, .owner-login-card { display: flex; flex-direction: column; align-items: flex-start; padding: 22px; border: 1px solid rgba(192,218,202,.1); border-radius: 13px; background: radial-gradient(ellipse at 6% 0%, rgba(237,189,117,.06), transparent 48%), linear-gradient(145deg, rgba(20,31,26,.98), rgba(14,22,19,.98)); }
+.owner-setup-card { flex-direction: row; gap: 16px; }
+.owner-setup-mark, .owner-gate-icon, .owner-login-symbol, .owner-hero-mark { display: grid; place-items: center; flex: 0 0 auto; width: 46px; height: 46px; color: #edbd75; border: 1px solid rgba(237,189,117,.2); border-radius: 13px; background: rgba(237,189,117,.08); }
+.owner-setup-copy { min-width: 0; flex: 1; }
+.owner-setup-copy h2, .owner-gate-card h2, .owner-login-card h2 { margin: 10px 0 5px; color: #eaf1eb; font-size: 17px; font-weight: 650; }
+.owner-setup-copy p, .owner-gate-card p, .owner-login-card p { max-width: 780px; margin: 0; color: #92a096; font-size: 10px; line-height: 1.8; }
+.owner-env-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 9px; }
+.owner-env-list code, .owner-console code { direction: ltr; unicode-bidi: plaintext; color: #c4d79d; font-size: 9px; }
+.owner-env-list code { display: inline-flex; padding: 5px 7px; border: 1px solid rgba(183,244,123,.1); border-radius: 6px; background: rgba(183,244,123,.035); }
+.owner-setup-copy ol { display: grid; gap: 6px; margin: 10px 0 14px; padding-inline-start: 20px; color: #a6b1a8; font-size: 9px; line-height: 1.75; }
+.owner-setup-copy li::marker { color: #b7f47b; }
+.owner-gate-card { max-width: 740px; gap: 9px; }
+.owner-gate-icon { color: #edbd75; }
+.owner-status-pill { display: inline-flex; align-items: center; gap: 5px; width: fit-content; padding: 4px 8px; border-radius: 99px; font-size: 8px; font-weight: 650; }
+.owner-pill-warn { color: #edc77e; background: rgba(237,189,117,.09); }
+.owner-pill-ready { color: #c1ee91; background: rgba(183,244,123,.08); }
+.owner-gate-card .button { margin-top: 5px; }
+.owner-id-copy { display: flex; align-items: center; gap: 9px; margin-top: 12px; padding: 8px; border: 1px solid rgba(192,218,202,.1); border-radius: 9px; background: rgba(0,0,0,.13); }
+.owner-id-copy code { min-width: 160px; color: #e4ede5; font-size: 12px; }
+.owner-login-card { width: min(100%, 510px); gap: 9px; }
+.owner-login-symbol { margin-bottom: 3px; color: #c9f49e; border-color: rgba(183,244,123,.2); background: rgba(183,244,123,.07); }
+.owner-password-form { display: grid; gap: 8px; width: 100%; margin-top: 8px; }
+.owner-password-form label { color: #b9c7bb; font-size: 9px; font-weight: 600; }
+.owner-password-form input { width: 100%; min-height: 39px; padding: 9px 11px; color: #ecf3ed; border: 1px solid rgba(192,218,202,.13); border-radius: 8px; outline: none; background: rgba(5,10,8,.42); font: inherit; font-size: 10px; }
+.owner-password-form input:focus { border-color: rgba(183,244,123,.48); box-shadow: 0 0 0 3px rgba(183,244,123,.08); }
+.owner-password-form .button { justify-self: start; margin-top: 2px; }
+.owner-password-form .button:disabled, .owner-console button:disabled { cursor: not-allowed; opacity: .58; }
+.owner-hero { display: flex; align-items: center; gap: 14px; padding: 17px 19px; border: 1px solid rgba(237,189,117,.16); border-radius: 12px; background: radial-gradient(ellipse at 7% 50%, rgba(237,189,117,.08), transparent 43%), linear-gradient(130deg, #142019, #111a16); }
+.owner-hero-good { border-color: rgba(183,244,123,.2); background: radial-gradient(ellipse at 7% 50%, rgba(183,244,123,.09), transparent 43%), linear-gradient(130deg, #14231a, #101916); }
+.owner-hero-mark { width: 48px; height: 48px; color: #b7f47b; border-color: rgba(183,244,123,.2); background: rgba(183,244,123,.07); }
+.owner-hero-copy { min-width: 0; flex: 1; }
+.owner-hero-copy h2 { margin: 6px 0 2px; color: #edf4ee; font-size: 17px; font-weight: 650; }
+.owner-hero-copy p { margin: 0; color: #8e9d92; font-size: 9px; }
+.owner-logout { flex: 0 0 auto; }
+.owner-readiness-panel, .owner-tools-panel { padding: 15px 16px; }
+.owner-panel-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 11px; }
+.owner-panel-heading h2 { margin: 0; color: #e7eee8; font-size: 13px; font-weight: 650; }
+.owner-panel-heading p { margin: 3px 0 0; color: #7e8d83; font-size: 9px; line-height: 1.6; }
+.owner-panel-heading > svg { flex: 0 0 auto; color: #b7f47b; }
+.owner-readiness-list { display: grid; }
+.owner-readiness-row { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 7px 0; border-bottom: 1px solid rgba(192,218,202,.06); }
+.owner-readiness-row:last-child { border-bottom: 0; }
+.owner-readiness-icon { display: grid; place-items: center; flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; }
+.owner-readiness-row.is-ready .owner-readiness-icon { color: #b7f47b; background: rgba(183,244,123,.075); }
+.owner-readiness-row.is-missing .owner-readiness-icon { color: #edbd75; background: rgba(237,189,117,.075); }
+.owner-readiness-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 2px; }
+.owner-readiness-copy strong { color: #d6e0d7; font-size: 9px; font-weight: 600; }
+.owner-readiness-copy small { color: #7e8d83; font-size: 8px; }
+.owner-readiness-state { flex: 0 0 auto; color: #b7f47b; font-size: 8px; }
+.owner-readiness-row.is-missing .owner-readiness-state { color: #edbd75; }
+.owner-safety-note { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 9px 10px; border: 1px solid rgba(237,189,117,.12); border-radius: 8px; background: rgba(237,189,117,.045); color: #bba883; font-size: 9px; line-height: 1.7; }
+.owner-safety-note svg { flex: 0 0 auto; margin-top: 1px; color: #edbd75; }
+.owner-tool-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.owner-tool-actions .button { display: inline-flex; align-items: center; gap: 7px; font-size: 9px; }
+.owner-console button:focus-visible { outline: 2px solid rgba(183,244,123,.7); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .owner-heading { align-items: flex-start; flex-direction: column; }
+  .owner-setup-card { padding: 17px; }
+  .owner-hero { align-items: flex-start; flex-wrap: wrap; padding: 15px; }
+  .owner-logout { margin-inline-start: 61px; }
+}
+@media (max-width: 520px) {
+  .owner-heading { gap: 10px; }
+  .owner-refresh { align-self: flex-start; }
+  .owner-setup-card { flex-direction: column; }
+  .owner-gate-card, .owner-login-card { padding: 17px; }
+  .owner-id-copy { width: 100%; flex-wrap: wrap; }
+  .owner-id-copy code { flex: 1; min-width: 0; }
+  .owner-logout { margin-inline-start: 0; }
+  .owner-tool-actions { display: grid; grid-template-columns: 1fr 1fr; }
+  .owner-tool-actions .button { justify-content: center; min-height: 38px; }
+}
+@media (prefers-reduced-motion: reduce) { .owner-spin { animation: none; } }

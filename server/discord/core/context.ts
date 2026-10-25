@@ -32,14 +32,14 @@ export function logSafe(message: string, error?: unknown): void {
   console.warn(`[Systemix] ${message}${code ? ` (${code})` : ""}`);
 }
 
-/** Normalized guild configuration (5s DB cache). Falls back to safe defaults when the DB is unavailable. */
+/** Normalized guild configuration. Defaults apply only after a successful read with no saved row. */
 export async function getGuildConfig(guildId: string): Promise<GuildSecurityConfig> {
   try {
     const row = await db.getGuildSecuritySettings(guildId);
     return normalizeGuildSecurityConfig(row?.settings ?? defaultGuildSecurityConfig);
   } catch (error) {
     logSafe(`Config read failed for guild ${guildId}`, error);
-    return defaultGuildSecurityConfig;
+    throw new Error("guild_security_config_unavailable");
   }
 }
 
@@ -110,7 +110,6 @@ export async function sendToChannel(
   options: { priority?: boolean } = {},
 ): Promise<Message | null> {
   if (!channelId) return null;
-  if (!guildBudget(guild.id).tryConsume(options.priority ?? false)) return null;
   try {
     const channel = guild.channels.cache.get(channelId) ?? await guild.channels.fetch(channelId).catch(() => null);
     if (!channel || !channel.isTextBased() || !("send" in channel)) return null;
@@ -118,6 +117,7 @@ export async function sendToChannel(
     const perms = me ? channel.permissionsFor(me) : null;
     if (!perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) return null;
     if (payload.embeds?.length && !perms.has(PermissionFlagsBits.EmbedLinks)) return null;
+    if (!guildBudget(guild.id).tryConsume(options.priority ?? false)) return null;
     return await channel.send({ allowedMentions: { parse: [] }, ...payload });
   } catch (error) {
     logSafe(`Send failed in guild ${guild.id}`, error);

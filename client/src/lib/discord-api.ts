@@ -2,7 +2,7 @@ import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/di
 import type { GuildMeta } from "../../../shared/systemix-api";
 
 export type DiscordBotState = {
-  status: "not_configured" | "disabled_by_policy" | "connecting" | "ready" | "degraded";
+  status: "not_configured" | "disabled_by_policy" | "blocked_by_readiness" | "connecting" | "ready" | "degraded";
   readyAt: string | null;
   guildCount: number;
   memberIntentEnabled: boolean;
@@ -34,6 +34,33 @@ export type DiscordDashboardData = {
   sessionKeyConfigured: boolean;
 };
 
+export type OwnerPanelStatus = {
+  configured: boolean;
+  authenticated: boolean;
+  eligible: boolean;
+  userId: string | null;
+};
+
+export type OwnerPanelOverview = {
+  bot: Pick<DiscordBotState, "status">;
+  readiness: {
+    oauthConfigured: boolean;
+    sessionKeyConfigured: boolean;
+    ownerPasswordConfigured: boolean;
+    ownerAllowlistConfigured: boolean;
+  };
+};
+
+export type RuntimeReadiness = {
+  ready: boolean;
+  status: "ready" | "not_ready";
+  code?: "database_unavailable" | "migrations_pending";
+  migration: {
+    state: "not_requested" | "running" | "ready" | "missing_database" | "connection_failed" | "failed";
+    mode: "automatic" | "external";
+  };
+};
+
 export type DiscordGuildSnapshot = {
   settings: GuildSecurityConfig;
   botInstalled: boolean;
@@ -45,6 +72,7 @@ export type DiscordGuildSnapshot = {
     moderateMembers: boolean;
   };
   memberIntentEnabled: boolean;
+  messageContentIntentEnabled: boolean;
 };
 
 export type DiscordSecurityEvent = {
@@ -65,7 +93,7 @@ export class DiscordApiError extends Error {
   }
 }
 
-async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function readJson<T>(path: string, init?: RequestInit, acceptedStatusCodes: number[] = []): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path, {
@@ -77,7 +105,7 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new DiscordApiError(0, "network_unavailable");
   }
   const payload = await response.json().catch(() => ({})) as { error?: unknown };
-  if (!response.ok) {
+  if (!response.ok && !acceptedStatusCodes.includes(response.status)) {
     const code = typeof payload.error === "string" ? payload.error : "request_failed";
     throw new DiscordApiError(response.status, code);
   }
@@ -113,6 +141,23 @@ export const discordApi = {
   },
   async logout() {
     return readJson<{ ok: true }>("/api/discord/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
+      body: JSON.stringify({}),
+    });
+  },
+  loadOwnerStatus: () => readJson<OwnerPanelStatus>("/api/owner/status"),
+  loadOwnerOverview: () => readJson<OwnerPanelOverview>("/api/owner/overview"),
+  loadReadiness: () => readJson<RuntimeReadiness>("/api/ready", undefined, [503]),
+  async loginOwner(password: string) {
+    return readJson<{ authenticated: true }>("/api/owner/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
+      body: JSON.stringify({ password }),
+    });
+  },
+  async logoutOwner() {
+    return readJson<{ ok: true }>("/api/owner/logout", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
       body: JSON.stringify({}),

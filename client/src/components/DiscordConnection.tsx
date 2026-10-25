@@ -41,6 +41,7 @@ type Props = {
 const botStateLabel: Record<DiscordDashboardData["bot"]["status"], string> = {
   not_configured: "لم تُضف بيانات تشغيل البوت بعد",
   disabled_by_policy: "متوقف بأمان حتى تفعيل الاستضافة الدائمة",
+  blocked_by_readiness: "موقوف حتى اتصال قاعدة البيانات ونجاح الترحيلات",
   connecting: "يحاول الاتصال بـDiscord",
   ready: "Gateway متصل",
   degraded: "الاتصال يحتاج مراجعة الإعدادات",

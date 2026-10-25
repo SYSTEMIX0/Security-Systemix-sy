@@ -4,9 +4,10 @@ import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerDiscordRoutes } from "../discord/routes";
-import { startDiscordBot, stopDiscordBot } from "../discord/bot";
+import { blockDiscordBotForReadiness, startDiscordBot, stopDiscordBot } from "../discord/bot";
 import { publicPlatformScript } from "./publicConfig";
 import { runStartupMigrations } from "./migrations";
+import { getReadiness, shouldStartProductionGateway } from "./readiness";
 import { logStartupReport } from "./startupReport";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -19,6 +20,15 @@ async function startServer() {
   app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ limit: "32kb", extended: false, parameterLimit: 100 }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok" }));
+  app.get("/api/ready", async (_req, res) => {
+    const readiness = await getReadiness();
+    res.status(readiness.ready ? 200 : 503).json({
+      status: readiness.status,
+      ...(readiness.code ? { code: readiness.code } : {}),
+      migration: readiness.migration.state,
+      migrationMode: readiness.migration.mode,
+    });
+  });
   app.get("/api/platform/config.js", (_req, res) => {
     res.set("Cache-Control", "no-store").type("application/javascript").send(publicPlatformScript());
   });
@@ -46,7 +56,20 @@ async function startServer() {
   server.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);
     logStartupReport();
-    void startDiscordBot();
+    void (async () => {
+      if (process.env.NODE_ENV === "production" && process.env.SYSTEMIX_ENABLE_PRODUCTION_GATEWAY === "true") {
+        const readiness = await getReadiness();
+        if (!shouldStartProductionGateway(process.env, readiness.ready)) {
+          const code = readiness.code ?? "readiness_not_ready";
+          blockDiscordBotForReadiness(code);
+          console.warn(`[Systemix] Production Gateway held by readiness policy (${code})`);
+          return;
+        }
+      }
+      await startDiscordBot();
+    })().catch((error) => {
+      console.error(`[Systemix] Gateway startup policy failed (${error instanceof Error ? error.name : "unknown"})`);
+    });
   });
   const shutdown = () => { void stopDiscordBot().finally(() => server.close()); };
   process.once("SIGTERM", shutdown);

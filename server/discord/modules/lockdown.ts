@@ -62,6 +62,14 @@ export function restoredSendMessagesValue(previous: PreviousSendMessages): boole
   return null;
 }
 
+export async function withAuditPrecondition<T>(
+  recordPrecondition: () => Promise<boolean>,
+  performSideEffect: () => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false }> {
+  if (!await recordPrecondition()) return { ok: false };
+  return { ok: true, value: await performSideEffect() };
+}
+
 function lockableChannels(guild: Guild, config: GuildSecurityConfig): LockableChannel[] {
   const excluded = new Set([
     ...config.lockdown.exemptChannelIds,
@@ -179,11 +187,14 @@ export async function activateLockdown(
     const endsAt = duration ? new Date(now.getTime() + duration * 60_000) : null;
     const reason = cleanReason(input.reason);
 
-    const attemptSaved = await recordEvent({
-      guildId: guild.id, eventType: "lockdown_start_attempt", actorId: input.actorId,
-      severity: "high", details: { trigger: input.trigger, plannedChannels: snapshot.length, reason },
-    });
-    if (!attemptSaved) return { ok: false, channelsChanged: 0, active: false, endsAt: null, error: "audit_unavailable" };
+    const audited = await withAuditPrecondition(
+      () => recordEvent({
+        guildId: guild.id, eventType: "lockdown_start_attempt", actorId: input.actorId,
+        severity: "high", details: { trigger: input.trigger, plannedChannels: snapshot.length, reason },
+      }),
+      async () => undefined,
+    );
+    if (!audited.ok) return { ok: false, channelsChanged: 0, active: false, endsAt: null, error: "audit_unavailable" };
 
     // Persist the exact pre-state before changing any channel, so a restart can still unlock safely.
     await saveLockdownState({
@@ -219,20 +230,22 @@ export async function activateLockdown(
         guildId: guild.id, active: false, reason, startedById: input.actorId,
         trigger: input.trigger, channels: [], startedAt: null, endsAt: null,
       });
-      await recordEvent({
+      const resultSaved = await recordEvent({
         guildId: guild.id, eventType: "lockdown_start_result", actorId: input.actorId,
         severity: "high", details: { trigger: input.trigger, changed: 0, failed, result: "no_channels_locked" },
       });
+      if (!resultSaved) return { ok: false, channelsChanged: 0, active: false, endsAt: null, error: "audit_result_unavailable" };
       return { ok: false, channelsChanged: 0, active: false, endsAt: null, error: failed ? "no_channels_locked" : "no_lockable_channels" };
     }
 
-    await recordEvent({
+    const resultSaved = await recordEvent({
       guildId: guild.id,
       eventType: "lockdown_start_result",
       actorId: input.actorId,
       severity: input.trigger === "manual" || input.trigger === "dashboard" ? "medium" : "high",
       details: { trigger: input.trigger, channelsChanged: changed, channelsFailed: failed, reason, result: failed ? "partial" : "active" },
     });
+    if (!resultSaved) return { ok: false, channelsChanged: changed, active: true, endsAt: endsAt?.toISOString() ?? null, error: "audit_result_unavailable_discord_may_have_changed" };
     if (config.lockdown.announce) {
       await sendSecurityAlert(guild, config, config.general.securityLogChannelId, alertPayload("تم تفعيل قفل الحماية", reason, changed));
     }
@@ -254,13 +267,14 @@ export async function deactivateLockdown(
   try {
     const state = await readLockdownState(guild.id);
     if (!state?.active) return { ok: true, channelsRestored: 0, active: false };
-    if (input.actorId) {
-      const attemptSaved = await recordEvent({
+    const audited = await withAuditPrecondition(
+      () => recordEvent({
         guildId: guild.id, eventType: "lockdown_end_attempt", actorId: input.actorId,
         severity: "high", details: { channels: state.channels.length, reason: cleanReason(input.reason) },
-      });
-      if (!attemptSaved) return { ok: false, channelsRestored: 0, active: true, error: "audit_unavailable" };
-    }
+      }),
+      async () => undefined,
+    );
+    if (!audited.ok) return { ok: false, channelsRestored: 0, active: true, error: "audit_unavailable" };
     const me = guild.members.me;
     if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
       return { ok: false, channelsRestored: 0, active: true, error: "bot_missing_manage_channels" };
@@ -302,16 +316,29 @@ export async function deactivateLockdown(
         startedAt: null,
         endsAt: null,
       });
-      await recordEvent({
+      const resultSaved = await recordEvent({
         guildId: guild.id,
         eventType: "lockdown_ended",
         actorId: input.actorId,
         severity: "medium",
         details: { channelsRestored: restored },
       });
+      if (!resultSaved) return { ok: false, channelsRestored: restored, active: false, error: "audit_result_unavailable_discord_may_have_changed" };
       return { ok: true, channelsRestored: restored, active: false };
     }
-    return { ok: false, channelsRestored: restored, active: true, error: "some_channels_could_not_be_restored" };
+    const resultSaved = await recordEvent({
+      guildId: guild.id,
+      eventType: "lockdown_end_partial",
+      actorId: input.actorId,
+      severity: "high",
+      details: { channelsRestored: restored, channelsFailed: failed },
+    });
+    return {
+      ok: false,
+      channelsRestored: restored,
+      active: true,
+      error: resultSaved ? "some_channels_could_not_be_restored" : "audit_result_unavailable_discord_may_have_changed",
+    };
   } catch (error) {
     logSafe(`Lockdown deactivation failed in guild ${guild.id}`, error);
     return { ok: false, channelsRestored: 0, active: true, error: "lockdown_storage_or_discord_error" };

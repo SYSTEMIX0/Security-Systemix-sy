@@ -4,6 +4,7 @@ import { asyncRoute, apiError, validateMutation } from "./api/common";
 import { registerCommunityApi } from "./api/community";
 import { registerCoreApi } from "./api/core";
 import { registerModerationApi } from "./api/moderation";
+import { registerOwnerApi } from "./api/owner";
 import { registerSecurityApi } from "./api/security";
 import { getDiscordBotState, getDiscordClient } from "./bot";
 import {
@@ -71,4 +72,5 @@ export function registerDiscordRoutes(app: Express): void {
   registerSecurityApi(app);
   registerModerationApi(app);
   registerCommunityApi(app);
+  registerOwnerApi(app);
 }

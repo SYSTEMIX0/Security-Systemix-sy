@@ -10,7 +10,9 @@
 - Anti-Nuke وAnti-Raid لا ينفذان عقوبة إلا إذا كانت الوحدة مفعّلة وكان السيرفر في نمط الحماية، مع نجاح تسجيل الأثر المسبق، وصلاحيات Discord وترتيب الرتب المناسبين. إعدادات التنبيه والمراقبة منفصلة، والإشارات ليست حكماً قاطعاً على نية العضو.
 - قواعد Discord AutoMod الأصلية تُطبّق عبر إجراء منفصل وتأكيد مسؤول السيرفر؛ يقتصر التعطيل على القواعد التي أنشأها Systemix.
 - صفحة إدارة المجتمع تحفظ إعدادات التذاكر والهدايا والترحيب والمستويات والمقترحات، لكنها لا تنشر لوحة تذاكر ولا تنشئ سحباً أو فعالية. صفحات الباقات والسجلات والاستعادة ما تزال جزئية أو معاينة. OAuth callback والصلاحيات والـGateway والإجراءات تحتاج اختباراً فعلياً في سيرفر تجريبي قبل البيع.
+- صفحة `/owner` محمية بجلسة Discord وهوية ضمن allowlist وكلمة مرور hashed، وتعرض مؤشرات التشغيل للقراءة فقط. تهيئتها تحتاج `SYSTEMIX_OWNER_DISCORD_IDS` و`SYSTEMIX_OWNER_PASSWORD_HASH` في Render؛ لا تدخل كلمة المرور في الشات أو المصدر.
 - أسرار OAuth وBot Token خارج Git. تشغيل Gateway المستمر في الإنتاج يحتاج استضافة مناسبة؛ لا تفعّل سياسة تشغيل الإنتاج قبل التحقق من متطلبات الخدمة والاختبار الحي.
+- قرار الإطلاق حالياً: معاينة/بيتا فقط، وليس حماية مكتملة للبيع. راجع [تقرير الجاهزية](./RELEASE-READINESS-AR.md) و[مسودة الإعلان](./ANNOUNCEMENT-DRAFT-AR.md).
 
 ## البداية
 
@@ -22,7 +24,7 @@
 - `pnpm start`: تشغيل البناء.
 - `pnpm db:migrate`: تطبيق migrations المسجلة؛ قاعدة تطوير WebDev والنشر مشتركة، لذلك لا تشغّل migrations/اختبارات كتابية عشوائية عليها.
 
-تُحمّل بيئة WebDev قيم `DATABASE_URL` و`MANUS_JWT_SECRET` على الخادم؛ لا تضعها في الكود. يوفّر [`.env.example`](./.env.example) أسماء إعدادات Discord فقط، وهو بلا أسرار.
+تُحمّل بيئة WebDev قيم `DATABASE_URL` و`MANUS_JWT_SECRET` على الخادم؛ لا تضعها في الكود. يوفّر [`.env.example`](./.env.example) أسماء متغيرات Discord وقاعدة البيانات والمالك فقط، من دون أي قيم سرية.
 
 ## إعداد Discord
 
@@ -30,15 +32,17 @@
 
 ## فحوص المصدر الحالية
 
-تم تشغيل `pnpm check` و`pnpm test` (84 اختباراً) و`pnpm build` و`git diff --check`، كما أعاد `/api/health` حالة `ok` وأعاد `/manus-routes.json` JSON صالحاً. هذه فحوص محلية للمصدر والخادم؛ لا تثبت OAuth callback، ولا اتصال البوت بـGuild، ولا جاهزية المنتج للبيع.
+تُشغَّل `pnpm check` و`pnpm test` و`pnpm build` قبل الحفظ. نتائج التشغيل الأخيرة محفوظة في `TODO.md`; الفحوص المحلية لا تثبت OAuth callback أو اتصال البوت بـGuild أو جاهزية المنتج للبيع.
 
 ## بنية المشروع
 
 - `client/src/`: لوحة التحكم العربية ومركز الوحدات.
 - `client/src/components/ProtectionConsole.tsx`: واجهة إعداد الحماية الحية للسيرفر المختار.
+- `client/src/components/BotOperationsPage.tsx` و`OwnerConsole.tsx`: حالة Gateway العامة ولوحة مالك قراءة فقط.
 - `client/src/components/DiscordConnection.tsx`: ربط Discord وحالة Gateway وبعض إجراءات الإعداد والمزامنة.
 - `server/discord/`: OAuth، Gateway، الوحدات، الحماية، وأحداث Discord وواجهات API.
 - `server/discord/api/settings-confirmation.ts`: سياسة تأكيد تغييرات الإعدادات.
+- `server/discord/owner-auth.ts`: توقيع hash كلمة مرور المالك والجلسة قصيرة العمر.
 - `server/db.ts` و`drizzle/`: تخزين الإعدادات والأحداث لكل سيرفر.
 - `research/`: مقارنة ومراجع التصميم والحدود الرسمية.
 

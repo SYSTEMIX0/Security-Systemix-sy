@@ -45,7 +45,7 @@ export function registerAutoModApi(app: Express): void {
 
     try {
       const changes = await applyNativeAutoModRules(guild, config);
-      await recordEvent({
+      const resultSaved = await recordEvent({
         guildId: summary.id,
         eventType: "automod:rules_synced",
         actorId: session.user.id,
@@ -56,6 +56,7 @@ export function registerAutoModApi(app: Express): void {
           disabled: changes.filter((change) => change.action === "disabled").length,
         },
       });
+      if (!resultSaved) throw new ApiError(503, "audit_result_unavailable_discord_may_have_changed");
       res.json({
         ok: true,
         changes,

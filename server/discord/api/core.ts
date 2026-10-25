@@ -138,6 +138,7 @@ export function registerCoreApi(app: Express): void {
         moderateMembers: Boolean(me?.permissions.has(PermissionFlagsBits.ModerateMembers)),
       },
       memberIntentEnabled: state.memberIntentEnabled,
+      messageContentIntentEnabled: state.messageContentIntentEnabled,
     });
   });
 
@@ -150,6 +151,13 @@ export function registerCoreApi(app: Express): void {
     const confirmation = req.get(SETTINGS_CONFIRMATION_HEADER);
     const current = await loadGuildConfig(summary.id);
     const settings = mergeGuildSecurityConfig(current, parsed.data);
+    const botState = getDiscordBotState();
+    if (parsed.data.antiRaid?.enabled === true && !current.antiRaid.enabled && !botState.memberIntentEnabled) {
+      throw new ApiError(409, "guild_members_intent_required");
+    }
+    if (parsed.data.antiSpam?.enabled === true && !current.antiSpam.enabled && !botState.messageContentIntentEnabled) {
+      throw new ApiError(409, "message_content_intent_required");
+    }
     if (!acceptsSettingsConfirmation(confirmation, settings.mode)) {
       res.status(428).json({ error: settings.mode === "protect" ? "protect_confirmation_required" : "settings_confirmation_required" });
       return;

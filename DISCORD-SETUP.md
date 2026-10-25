@@ -1,74 +1,76 @@
-# إعداد Security Systemix مع Discord
+# دليل إعداد Security Systemix
 
-## قبل أن تبدأ
+هذا الدليل يربط **بوت Discord فقط** بخدمة Render ولوحة التحكم. لا يوجد أي ربط بـFiveM. لا ترسل Bot Token أو Client Secret أو كلمة مرور MySQL أو كلمة مرور المالك في المحادثة أو GitHub.
 
-Security Systemix بوت Discord فقط؛ لا يتكامل مع FiveM. الكود يحتوي وحدات Anti-Nuke وAnti-Raid وAnti-Spam وAutoMod وغيرها، لكن وجود الوحدة في المصدر لا يعني أن كل شاشة إدارة موصولة أو أن البوت اختُبر في سيرفر حي. لا تعتبر النسخة جاهزة للبيع قبل اختبار OAuth والـGateway والصلاحيات والإجراءات في Guild تجريبي تملكه.
+## 1. ربط Discord OAuth
 
-صفحة **الحماية** في Dashboard تقرأ وتكتب إعدادات السيرفر المحدد. كل حفظ يحتاج تأكيداً ظاهراً، والخادم يسجل نية التغيير في قاعدة التدقيق قبل حفظ الإعدادات؛ إذا فشل التسجيل يرفض الحفظ. اختيار نمط `protect` يتطلب تأكيداً أقوى من `observe`. النمط `observe` هو البداية الآمنة: يرصد ويسجل دون فرض عقوبات تلقائية.
+1. افتح Discord Developer Portal للتطبيق ذي Application ID `1562540070802563162`.
+2. في **OAuth2 → General → Redirects** أضف الرابط التالي كما هو تماماً:
+   `https://security-systemix-sy.onrender.com/api/discord/callback`
+3. في Render → خدمة **Security-Systemix-sy** → **Environment** تأكد من وجود `DISCORD_CLIENT_ID` و`DISCORD_CLIENT_SECRET` و`DISCORD_REDIRECT_URI`، وأن قيمة redirect تطابق الرابط أعلاه حرفياً. خزّن Client Secret في Render فقط.
+4. يحتاج تسجيل الدخول إلى نطاقي OAuth `identify` و`guilds`. عند العودة من Discord، اختر سيرفراً تملكه أو لديك فيه صلاحية الإدارة.
 
-## إعداد تطبيق Discord
+إذا غيّرت نطاق الموقع لاحقاً، حدّث قيمة `DISCORD_REDIRECT_URI` وقائمة Redirects في Developer Portal معاً.
 
-1. افتح [Discord Developer Portal](https://discord.com/developers/applications/1562540070802563162) للتطبيق المعتمد لـSecurity Systemix: `1562540070802563162`.
-2. من **OAuth2 → General** أضف Redirect URI هذا حرفياً ثم احفظه:
-   `https://systemix-hc3hycno.manus.space/api/discord/callback`
-   تسجيل الدخول من Preview المستضاف على `*.manus.computer` يحوّل إلى الموقع المنشور ويعود إليه بعد OAuth. لا تضف Redirect خاصاً بالـPreview اعتماداً على الزر الحالي؛ يتطلب ذلك تغييراً صريحاً في تدفق OAuth.
-3. من **OAuth2 → Client Secret** أنشئ/انسخ قيمة Client Secret، ومن **Bot** انسخ Bot Token. هذان سرّان مختلفان؛ لا ترسلهما في المحادثة ولا تضعهما في GitHub أو صورة شاشة.
-4. أدخل `DISCORD_CLIENT_SECRET` و`DISCORD_BOT_TOKEN` عبر بطاقة الأسرار الآمنة في المشروع. `DISCORD_CLIENT_ID` عام وموجود في الكود بقيمة `1562540070802563162`.
-5. يستخدم تسجيل الدخول نطاقي OAuth `identify` و`guilds` فقط؛ لا نطلب صلاحية دخول المستخدم إلى السيرفر أو تغيير حسابه.
+## 2. إعداد تطبيق البوت وصلاحياته
 
-إذا ظهرت حالة `bot_application_id_mismatch`، فالتوكن يعود إلى تطبيق Discord مختلف عن Application ID؛ يجب أن يكون Client Secret وBot Token كلاهما من التطبيق أعلاه. يوقف Systemix Gateway تلقائياً عند عدم التطابق ولا يسجل أوامر Slash.
+1. في Developer Portal → **Bot** خذ Bot Token واحفظه في Render باسم `DISCORD_BOT_TOKEN` فقط. لا تستخدم Client Secret مكانه؛ هما قيمتان مختلفتان.
+2. من صفحة Bot فعّل **Server Members Intent** و**Message Content Intent** إذا كنت تريد وظائف مكافحة الغارات والسبام المعتمدة عليهما.
+3. قيمة `SYSTEMIX_PRIVILEGED_INTENTS=auto` هي سياسة التفاوض الافتراضية: يحاول Gateway تشغيل Members وMessage Content معاً، ثم كل واحد منفرداً، ثم يعمل من دون الاثنين إذا رفض Discord الصلاحية. لذلك تعرض اللوحة الحالة الفعلية المقبولة؛ وجود الإعداد في Portal وحده لا يثبت نجاحه.
+   - `members`: يطلب Members فقط.
+   - `none`: يعطل الـIntents المميزة.
+4. أضف البوت إلى **سيرفر تجريبي تملكه** باستخدام OAuth2 scopes `bot` و`applications.commands`. لا تمنحه `Administrator` تلقائياً. امنحه أقل صلاحيات لازمة بعد مراجعة إجراءات الوحدات؛ تأكد أيضاً من ترتيب رتبته أعلى من الرتب التي يحتاج إدارتها، لكن أسفل رتبة المالك.
+5. ابدأ في نمط المراقبة على سيرفر تجريبي. اختبر الصلاحيات والحدود والتسجيل قبل تجربة أي عقوبات.
 
-## الصلاحيات وIntents
+## 3. قاعدة البيانات: ماذا أضع في `DATABASE_URL`؟
 
-- رابط الدعوة الذي يولده المشروع لا يطلب **Administrator**. لكنه يطلب مجموعة صلاحيات إدارية تشمل بحسب المصدر: `ViewAuditLog` و`ManageGuild` و`ManageRoles` و`ManageChannels` و`ManageMessages` و`ManageWebhooks` و`KickMembers` و`BanMembers` و`ModerateMembers` وبعض صلاحيات القنوات والصوت. راجع شاشة Discord قبل الموافقة، ولا تمنح صلاحية أوسع من اللازم. إذا سبق ومنحت Administrator، أعد مراجعة صلاحيات البوت وخفّضها إلى ما تحتاجه الوحدات التي ستختبرها.
-- `ViewAuditLog` مطلوب لإشارات Anti-Nuke. يحتاج تنفيذ العقوبات إلى الأذونات المناسبة، كما يجب أن يكون أعلى دور للبوت أعلى من دور المستهدف. لا يتجاوز Systemix مالك السيرفر أو قيود ترتيب الرتب.
-- Anti-Raid يحتاج `Guild Members Intent` لمراقبة دخول الأعضاء. يحاول Gateway استخدام الـIntents المميزة المتاحة ثم يعود إلى مجموعة أقل عند رفض Discord؛ تظهر الحالة الفعلية في لوحة الربط. فعّل الـIntents من **Bot → Privileged Gateway Intents** قبل توقع ميزات تتطلبها.
-- ميزات قراءة نص الرسائل تعتمد على `Message Content Intent` وتوفره في تطبيق Discord؛ عند غيابه تُقيّد قواعد النصوص، ولا ينبغي ادعاء اكتمال فحص محتوى الرسائل. لا يخزن المشروع محتوى الرسائل الخام في قاعدة التدقيق.
+قاعدة البيانات هي مخزن إعدادات السيرفر وسجلات التدقيق، وليست كلمة مرور Discord. المشروع يستخدم **MySQL** عبر Drizzle و`mysql2`؛ رابط PostgreSQL من Render لا يعمل مع هذا الكود.
 
-## تجربة آمنة
+إذا لم تكن لديك قاعدة MySQL مستضافة، اترك `DATABASE_URL` فارغاً ولا تكتب كلمة أو قيمة تجريبية. اختر مزود MySQL، أنشئ قاعدة ومستخدم اتصال، ثم انسخ **رابط الاتصال MySQL الكامل** من صفحة المزود إلى حقل `DATABASE_URL` في Render. يجب أن يحتوي الرابط على معلومات المضيف والمنفذ واسم القاعدة وبيانات المستخدم، وقد يرفق المزود إعداد TLS. لا تشارك الرابط هنا لأنه يتضمن كلمة مرور القاعدة.
 
-1. اختبر أولاً على سيرفر تجريبي تملكه، وليس على مجتمع العملاء.
-2. افتح لوحة Security Systemix واختر **ربط Discord** ثم وافق بحساب يملك صلاحية إدارة السيرفر، واختر السيرفر.
-3. إن لم يكن البوت في السيرفر، استخدم رابط الدعوة من اللوحة، وراجع الأذونات المعروضة قبل الموافقة.
-4. ابدأ بوضع `observe`، ثم فعّل وحدة واحدة فقط، وحدد قنوات التنبيه. اختبر السجلات وحدود الرصد قبل الانتقال إلى `protect`.
-5. في نمط `protect` قد تطبق Anti-Nuke عقوبة مختارة (تنبيه، إزالة رتب خطرة قابلة للإزالة، Timeout، طرد أو حظر) بعد تجاوز العتبة. وقد تطبق Anti-Raid الإجراء المحدد عند تحقق إشارات السياسة. تأكد من وجود سبب/قناة مراجعة وصلاحيات وترتيب رتب مناسبين؛ إشارات عمر الحساب أو غياب الصورة ليست وحدها دليلاً قاطعاً.
-6. AutoMod منفصل: احفظ إعداداته، ثم اضغط تطبيق/مزامنة واقرأ نافذة التأكيد. تُدار قواعد Systemix المملوكة للتطبيق فقط؛ لا يعدّل البوت قواعد أنشأها مسؤول آخر.
-7. اختبر `/systemix status` و`/systemix simulate`. المحاكاة لا تغيّر شيئاً في Discord.
-8. افحص سجل التدقيق في لوحة Systemix، ثم جرّب أن تكون قاعدة البيانات غير متاحة فقط في بيئة اختبار معزولة للتأكد من أن الحفظ المرفوض لا يغير الإعدادات. لا توقف قاعدة التطوير/الإنتاج المشتركة لهذا الاختبار.
+بعد وضع الرابط في Render، أضف `SYSTEMIX_AUTO_MIGRATE=true`. عند إعادة البناء/التشغيل سيحاول التطبيق إنشاء جداول Systemix في القاعدة المتصلة. هذا الخيار لا ينشئ حساب قاعدة البيانات أو القاعدة لدى المزود، ولا يحول قاعدة PostgreSQL إلى MySQL.
 
-## تشغيل محلياً
+## 4. قائمة Render Environment
 
-المشروع مُهيأ أساساً لـWebDev؛ قاعدة MySQL ومفتاح جلسة Manus تأتي من بيئة المشروع، وليست في `.env.example`. لا تشغّل `pnpm db:migrate` ضد قاعدة مشتركة لمجرد التجربة؛ قاعدة التطوير والنشر واحدة. التشغيل المحلي الكامل يحتاج بيئة DB ومفتاح جلسة صالحين، ويحتاج Redirect URI مسجلاً في Discord OAuth. لاختبار OAuth محلياً فقط، سجّل `http://localhost:3000/api/discord/callback` وعيّن `SYSTEMIX_ALLOW_LOCAL_HTTP_REDIRECT=true` مع ذلك العنوان؛ اترك العلم false في الإنتاج. Cookies على `localhost` تكون Lax، بينما HTTPS يستخدم `SameSite=None; Secure`. زر الدخول من Preview المستضاف يوجّه إلى الموقع المنشور؛ اختبار callback مباشرة داخل Preview غير مفعّل حالياً.
+في Render → **Security-Systemix-sy → Environment** راجع الأسماء التالية. أدخل القيم السرية مباشرة في حقول Render ولا تضعها في ملفات Git:
 
-في بيئة التطوير يبدأ Gateway إذا توفر `DISCORD_BOT_TOKEN`. عند الاتصال قد يسجل البوت أوامر `/systemix` على السيرفرات الموجودة فيه. لا تضع التوكن في بيئة تطوير إلا إذا كنت تقصد اختبار ذلك على تلك السيرفرات.
+| المفتاح | ما يوضع فيه |
+| --- | --- |
+| `DISCORD_CLIENT_ID` | `1562540070802563162` |
+| `DISCORD_CLIENT_SECRET` | Client Secret من تطبيق Discord نفسه |
+| `DISCORD_REDIRECT_URI` | `https://security-systemix-sy.onrender.com/api/discord/callback` |
+| `DISCORD_BOT_TOKEN` | Bot Token من تبويب Bot في Developer Portal |
+| `DATABASE_URL` | رابط اتصال قاعدة MySQL فعلية؛ ليس PostgreSQL ولا قيمة تجريبية |
+| `SYSTEMIX_AUTO_MIGRATE` | `true` على Render بعد توفير قاعدة MySQL |
+| `SYSTEMIX_PRIVILEGED_INTENTS` | `auto` عادةً؛ يختار الـIntents التي يقبلها Discord |
+| `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` | اتركه `false` الآن؛ لا تغيّره قبل جاهزية القاعدة والاختبار والاستضافة المستمرة |
+| `MANUS_JWT_SECRET` | سر جلسة عشوائي طويل؛ أنشئه من Render Generate، ولا ترسله لأحد |
 
-## النشر 24/7
+لا تحتاج `MANUS_OAUTH_API_URL` لتسجيل دخول Discord على Render؛ تسجيل Manus اختياري ومخصص لاستضافة Manus.
 
-اتصال Discord Gateway عملية طويلة العمر؛ Autoscale قد ينام أو يشغّل أكثر من عملية. استضافة Reserved في WebDev هي نمط العملية المستمرة لهذا المشروع. اتصال Gateway في الإنتاج محمي افتراضياً بمتغير `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=false`. لا تفعّله قبل اختيار نمط استضافة دائم، وتوفير الأسرار عبر القنوات الآمنة، وإكمال الاختبار على Guild تجريبي. تغيير الاستضافة قد يغير استخدام الموارد، ولا يتم تفعيله تلقائياً.
+## 5. متى يمكن تشغيل Gateway؟
 
-قبل اعتبار المنتج جاهزاً للبيع، أكمل واجهات إدارة المجتمع التي لا تزال معاينة، واختبر كل الوحدات الحية والأذونات والاستجابة للتوقف وإعادة الاتصال في سيرفر تملكه، وحدد سياسة خصوصية واحتفاظ واضحة لسجلات العملاء.
+يبقى Gateway الإنتاجي محجوباً عمداً حتى ينجح اتصال القاعدة والترحيلات. افحص:
 
-## متغيرات البيئة
+- `https://security-systemix-sy.onrender.com/api/health` — يثبت أن خادم الويب يرد فقط.
+- `https://security-systemix-sy.onrender.com/api/ready` — يجب أن يعيد `ready` قبل التفكير بتشغيل Gateway؛ 503 يعني أن القاعدة أو migrations غير جاهزة.
+- لوحة الموقع → **مركز تشغيل البوت** — تعرض حالة Gateway وIntents ومزامنة Slash بصورة فعلية.
 
-راجع [`.env.example`](./.env.example). لا تحفظ `.env` أو Client Secret أو Bot Token في المستودع. في WebDev استخدم إدخال الأسرار الآمن. أبقِ `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` و`SYSTEMIX_ENABLE_GUILD_MEMBERS_INTENT` على الوضع الآمن ما لم تكن شروط التفعيل المذكورة أعلاه متحققة.
+لا تضبط `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=true` إلا بعد أن تصبح `/api/ready` جاهزة، وتجرب تسجيل OAuth وتثبيت البوت ومزامنة Slash والصلاحيات على Guild تملكه، وتختار استضافة مناسبة لتشغيل Gateway باستمرار. خطة Render الحالية Free؛ وفق توثيق Render، خدمة الويب المجانية قد تتوقف عند الخمول، لذلك لا تَعِد بتوفر 24/7 عليها. لا تتم أي ترقية مدفوعة دون مراجعة التكلفة والموافقة عليها.
 
-## التشغيل على Render
+## 6. إعداد صفحة المالك بكلمة مرور خاصة
 
-عند كل تشغيل يطبع السجل أسطراً تبدأ بـ`[Systemix]` توضح ما هو جاهز وما هو ناقص، دون طباعة أي قيمة سرية. مثال: `Database: missing DATABASE_URL` يعني أن حفظ الإعدادات وسجل التدقيق متوقف حتى إضافة قاعدة البيانات.
+الصفحة المباشرة: `https://security-systemix-sy.onrender.com/owner`. وهي تتطلب **حساب Discord مسجلاً + Discord User ID ضمن قائمة السماح + كلمة مرور المالك**. لا تكفي صلاحية `Manage Guild` وحدها. الصفحة الحالية للقراءة التشغيلية فقط؛ لا تشغل Gateway ولا تغيّر أسرار Render.
 
-- `DISCORD_CLIENT_SECRET` و`DISCORD_BOT_TOKEN`: من تطبيق Discord نفسه.
-- `DISCORD_REDIRECT_URI`: `https://security-systemix-sy.onrender.com/api/discord/callback` ويُضاف حرفياً في Discord → OAuth2 → Redirects.
-- `MANUS_JWT_SECRET`: قيمة عشوائية من زر **Generate**؛ بدونها يفشل إكمال ربط Discord.
-- `DATABASE_URL`: رابط MySQL حقيقي فقط. مع `SYSTEMIX_AUTO_MIGRATE=true` ينشئ الخادم الجداول تلقائياً عند التشغيل.
-- `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=true`: بعد تجهيز قاعدة البيانات فقط. الخطة المجانية في Render قد تنام بعد 15 دقيقة بلا زيارات، فينقطع البوت.
-- `MANUS_OAUTH_API_URL`: غير مطلوب على Render؛ يخص تسجيل دخول Manus الاختياري فقط.
+1. في Discord فعّل **Developer Mode** من الإعدادات المتقدمة، ثم انسخ **User ID** لحسابك. أضف المعرف الرقمي إلى `SYSTEMIX_OWNER_DISCORD_IDS` في Render → الخدمة → **Environment**. يمكن فصل أكثر من معرف بفاصلة؛ استخدم ID وليس اسم الحساب.
+2. أنشئ كلمة مرور من 20 إلى 128 حرفاً. شغّل `pnpm owner:hash-password` في Terminal تفاعلي داخل المشروع أو Render Shell؛ اكتب كلمة المرور في prompt المخفي. انسخ ناتج `scrypt$...` فقط إلى `SYSTEMIX_OWNER_PASSWORD_HASH`. لا تحفظ النص الأصلي أو الـhash في Git أو ترسله في المحادثة.
+3. تأكد من وجود `MANUS_JWT_SECRET` في Render؛ لا تضع قيمته في الكود. احفظ Environment وشغّل **Save, rebuild, deploy**.
+4. افتح الرابط أعلاه، سجّل الدخول بحساب Discord نفسه الذي أضفته، ثم أدخل كلمة المرور الأصلية (وليس الـhash).
 
-## مراجع Discord الرسمية
+تستخدم اللوحة hash مملحاً بـscrypt وقائمة سماح وهوية Discord، وجلسة قصيرة وقيود محاولات؛ وليست TOTP أو WebAuthn. حد المحاولات الحالي بذاكرة نسخة الخدمة الواحدة؛ يلزم مخزن مركزي قبل التوسع لعدة نسخ. إزالة المعرف من القائمة أو تغيير hash كلمة المرور يبطل الجلسات القديمة.
 
-- [OAuth2](https://docs.discord.com/developers/topics/oauth2)
-- [Permissions and role hierarchy](https://docs.discord.com/developers/topics/permissions)
-- [Gateway and intents](https://docs.discord.com/developers/events/gateway)
-- [Gateway events](https://docs.discord.com/developers/events/gateway-events)
-- [Auto Moderation API](https://docs.discord.com/developers/resources/auto-moderation)
-- [Audit Log](https://docs.discord.com/developers/resources/audit-log)
-- [Rate limits](https://docs.discord.com/developers/topics/rate-limits)
+## 7. ما الذي يمكن الإعلان عنه اليوم؟
+
+يمكن الإعلان عن **مشروع قيد التطوير وواجهة معاينة** أو دعوة قائمة انتظار فقط. لا تقل إن البوت يحمي سيرفرات العملاء فعلياً، ولا تفتح بيع اشتراك أو تعد بتوفر مستمر قبل ربط قاعدة البيانات وإثبات `/api/ready` واختبار OAuth وGateway والوحدات وسجل التدقيق على Guild حقيقي واستضافة مناسبة.
+
+استخدم [`ANNOUNCEMENT-DRAFT-AR.md`](./ANNOUNCEMENT-DRAFT-AR.md) للنص المقترح، وراجع [`RELEASE-READINESS-AR.md`](./RELEASE-READINESS-AR.md) قبل أي إعلان عن الجاهزية.

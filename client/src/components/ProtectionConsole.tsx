@@ -13,6 +13,9 @@ function errorMessage(error: unknown): string {
   if (error instanceof DiscordApiError) {
     if (error.code === "audit_precondition_failed") return "تعذّر تسجيل التغيير في سجل التدقيق؛ لم تُحفظ الإعدادات. حاول مجدداً بعد استعادة قاعدة البيانات.";
     if (error.code === "settings_confirmation_required" || error.code === "protect_confirmation_required") return "انتهت صلاحية التأكيد. راجع التغييرات وأكّد الحفظ مرة أخرى.";
+    if (error.code === "guild_members_intent_required") return "تعذّر تفعيل Anti-Raid: فعّل Guild Members Intent في Discord Developer Portal ثم أعد تشغيل البوت.";
+    if (error.code === "message_content_intent_required") return "تعذّر تفعيل Anti-Spam: فعّل Message Content Intent في Discord Developer Portal ثم أعد تشغيل البوت.";
+    if (error.code === "guild_config_unavailable") return "تعذّر قراءة سياسة الحماية من قاعدة البيانات؛ لم يُنفذ أي إجراء أمني.";
     if (error.status === 403) return "لا تملك صلاحية إدارة هذا السيرفر في Discord.";
   }
   return "تعذّر تحميل إعدادات الحماية أو حفظها. تحقق من الاتصال ثم أعد المحاولة.";
@@ -108,10 +111,13 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
         <span className={snapshot.botInstalled ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.botInstalled ? "مثبّت في السيرفر" : "غير مثبّت في السيرفر"}</span>
         <span className={snapshot.permissions.viewAuditLog ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.permissions.viewAuditLog ? "صلاحية سجل Discord متاحة" : "صلاحية View Audit Log غير متاحة"}</span>
         <span className={snapshot.memberIntentEnabled ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.memberIntentEnabled ? "بوابة الأعضاء مفعّلة" : "بوابة الأعضاء غير مفعّلة"}</span>
+        <span className={snapshot.messageContentIntentEnabled ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.messageContentIntentEnabled ? "محتوى الرسائل متاح" : "محتوى الرسائل غير متاح"}</span>
       </div>
 
       {!snapshot.botInstalled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> يمكن حفظ الإعدادات، لكن إجراءات البوت لن تعمل في هذا السيرفر حتى تثبيته وتشغيله.</div>}
       {!snapshot.permissions.viewAuditLog && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> بعض إشارات مكافحة العبث ستكون محدودة دون صلاحية قراءة سجل التدقيق في Discord.</div>}
+      {!snapshot.memberIntentEnabled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> Anti-Raid يعتمد على Guild Members Intent. الإعداد المحفوظ لن يرصد دخول الأعضاء حتى تفعيله وإعادة تشغيل Gateway.</div>}
+      {!snapshot.messageContentIntentEnabled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> لا يستطيع Gateway قراءة محتوى الرسائل حالياً؛ إعداد Anti-Spam الذي يعتمد على النص لن يعمل قبل تفعيل Message Content Intent.</div>}
 
       <div className="pc-mode-card">
         <div><span className="pc-eyebrow">نمط التشغيل</span><strong>{draft.mode === "observe" ? "مراقبة آمنة" : "حماية فعّالة"}</strong><small>{draft.mode === "observe" ? "يرصد ويُسجّل دون تنفيذ عقوبات تلقائية." : "قد تنفّذ الوحدات إجراءات حسب إعداداتها وصلاحيات Discord."}</small></div>
@@ -132,7 +138,7 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
         </article>
 
         <article className="pc-card">
-          <div className="pc-card-title"><div><span className="pc-icon pc-icon-orange">02</span><div><h2>Anti-Raid</h2><p>رصد دفعات الدخول والحسابات الحديثة</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.antiRaid.enabled} onChange={(checked) => updateSection("antiRaid", { enabled: checked })} /></div>
+          <div className="pc-card-title"><div><span className="pc-icon pc-icon-orange">02</span><div><h2>Anti-Raid</h2><p>رصد دفعات الدخول والحسابات الحديثة</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.antiRaid.enabled} disabled={!snapshot.memberIntentEnabled && !draft.antiRaid.enabled} onChange={(checked) => updateSection("antiRaid", { enabled: checked })} /></div>
           <div className="pc-fields"><NumberField label="حد الدخول الجماعي" value={draft.antiRaid.joinThreshold} min={2} max={100} onChange={(value) => updateSection("antiRaid", { joinThreshold: value })} /><NumberField label="نافذة الرصد (ثوانٍ)" value={draft.antiRaid.windowSeconds} min={5} max={300} onChange={(value) => updateSection("antiRaid", { windowSeconds: value })} /><NumberField label="عمر الحساب الأدنى (ساعات)" value={draft.antiRaid.minAccountAgeHours} min={0} max={8760} onChange={(value) => updateSection("antiRaid", { minAccountAgeHours: value })} /></div>
           <SelectField label="الإجراء عند نمط الغارة" value={draft.antiRaid.raidAction} options={[{ value: "alert", label: "تنبيه فقط" }, { value: "timeout", label: "Timeout" }, { value: "kick", label: "طرد" }, { value: "ban", label: "حظر" }]} onChange={(value) => updateSection("antiRaid", { raidAction: value as GuildSecurityConfig["antiRaid"]["raidAction"] })} />
           <SelectField label="الإجراء للحسابات الحديثة" value={draft.antiRaid.newAccountAction} options={[{ value: "none", label: "لا عقوبة — تنبيه حسب الإشارات" }, { value: "timeout", label: "Timeout" }, { value: "kick", label: "طرد" }]} onChange={(value) => updateSection("antiRaid", { newAccountAction: value as GuildSecurityConfig["antiRaid"]["newAccountAction"] })} />
@@ -142,11 +148,11 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
         </article>
 
         <article className="pc-card">
-          <div className="pc-card-title"><div><span className="pc-icon pc-icon-blue">03</span><div><h2>مكافحة السبام</h2><p>تكرار الرسائل والمنشنات والروابط</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.antiSpam.enabled} onChange={(checked) => updateSection("antiSpam", { enabled: checked })} /></div>
+          <div className="pc-card-title"><div><span className="pc-icon pc-icon-blue">03</span><div><h2>مكافحة السبام</h2><p>تكرار الرسائل والمنشنات والروابط</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.antiSpam.enabled} disabled={!snapshot.messageContentIntentEnabled && !draft.antiSpam.enabled} onChange={(checked) => updateSection("antiSpam", { enabled: checked })} /></div>
           <div className="pc-fields"><NumberField label="الرسائل المسموحة" value={draft.antiSpam.maxMessages} min={3} max={30} onChange={(value) => updateSection("antiSpam", { maxMessages: value })} /><NumberField label="الفترة (ثوانٍ)" value={draft.antiSpam.perSeconds} min={2} max={60} onChange={(value) => updateSection("antiSpam", { perSeconds: value })} /><NumberField label="أقصى منشنات" value={draft.antiSpam.maxMentions} min={0} max={50} onChange={(value) => updateSection("antiSpam", { maxMentions: value })} /></div>
           <SelectField label="الإجراء" value={draft.antiSpam.action} options={[{ value: "delete", label: "حذف الرسالة" }, { value: "warn", label: "تحذير" }, { value: "timeout", label: "Timeout" }, { value: "kick", label: "طرد" }]} onChange={(value) => updateSection("antiSpam", { action: value as GuildSecurityConfig["antiSpam"]["action"] })} />
           {draft.antiSpam.action === "timeout" && <NumberField label="مدة Timeout (دقيقة)" value={draft.antiSpam.timeoutMinutes} min={1} max={1_440} onChange={(value) => updateSection("antiSpam", { timeoutMinutes: value })} />}
-          <SwitchRow label="حظر الروابط غير المسموحة" checked={draft.antiSpam.blockLinks} onChange={(checked) => updateSection("antiSpam", { blockLinks: checked })} />
+          <SwitchRow label="حظر الروابط غير المسموحة" checked={draft.antiSpam.blockLinks} disabled={!snapshot.messageContentIntentEnabled && !draft.antiSpam.blockLinks} onChange={(checked) => updateSection("antiSpam", { blockLinks: checked })} />
           <ChannelSelect label="قناة تنبيهات السبام" value={draft.antiSpam.alertChannelId} channels={channels} onChange={(value) => updateSection("antiSpam", { alertChannelId: value })} />
         </article>
 
@@ -190,8 +196,8 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
   );
 }
 
-function SwitchRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) {
-  return <label className="pc-switch-row"><span>{label}</span><input type="checkbox" checked={checked} onChange={(event) => onChange(event.currentTarget.checked)} /></label>;
+function SwitchRow({ label, checked, disabled = false, onChange }: { label: string; checked: boolean; disabled?: boolean; onChange: (value: boolean) => void }) {
+  return <label className={`pc-switch-row ${disabled ? "pc-switch-disabled" : ""}`}><span>{label}</span><input type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.currentTarget.checked)} /></label>;
 }
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {

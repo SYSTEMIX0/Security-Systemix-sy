@@ -15,7 +15,7 @@ import { bumpStat, flushStats } from "./store/stats";
 import { commandSyncRetryDelay } from "./command-sync";
 
 export type DiscordBotState = {
-  status: "not_configured" | "disabled_by_policy" | "connecting" | "ready" | "degraded";
+  status: "not_configured" | "disabled_by_policy" | "blocked_by_readiness" | "connecting" | "ready" | "degraded";
   readyAt: string | null;
   guildCount: number;
   memberIntentEnabled: boolean;
@@ -70,16 +70,21 @@ const BASE_INTENTS = [
 
 type IntentPlan = { members: boolean; content: boolean };
 
-/** Privileged intents are negotiated: try the richest set, fall back when Discord rejects it. */
-function intentPlans(): IntentPlan[] {
-  const policy = (process.env.SYSTEMIX_PRIVILEGED_INTENTS ?? "auto").toLowerCase();
+/** Privileged intents are negotiated independently so one unavailable intent does not disable the other. */
+export function getIntentPlans(value: string | undefined): IntentPlan[] {
+  const policy = (value ?? "auto").toLowerCase();
   if (policy === "none") return [{ members: false, content: false }];
   if (policy === "members") return [{ members: true, content: false }, { members: false, content: false }];
   return [
     { members: true, content: true },
     { members: true, content: false },
+    { members: false, content: true },
     { members: false, content: false },
   ];
+}
+
+function intentPlans(): IntentPlan[] {
+  return getIntentPlans(process.env.SYSTEMIX_PRIVILEGED_INTENTS);
 }
 
 export function getDiscordClient(): Client | null {
@@ -92,6 +97,18 @@ export function getDiscordBotState(): DiscordBotState {
     guildCount: client?.guilds.cache.size ?? runtimeState.guildCount,
     pingMs: client?.ws.ping && client.ws.ping > 0 ? Math.round(client.ws.ping) : null,
   };
+}
+
+export function blockDiscordBotForReadiness(code: string): void {
+  runtimeState.status = "blocked_by_readiness";
+  runtimeState.readyAt = null;
+  runtimeState.guildCount = 0;
+  runtimeState.memberIntentEnabled = false;
+  runtimeState.messageContentIntentEnabled = false;
+  runtimeState.lastErrorCode = code.slice(0, 80);
+  runtimeState.commandCount = null;
+  runtimeState.commandSyncStatus = "not_started";
+  runtimeState.commandSyncErrorCode = null;
 }
 
 function isIntentRejection(error: unknown): boolean {

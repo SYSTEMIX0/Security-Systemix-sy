@@ -15,6 +15,7 @@ type Props = {
 const statusView: Record<DiscordBotState["status"], { label: string; title: string; detail: string; tone: string }> = {
   not_configured: { label: "غير مهيأ", title: "البوت لم يُجهّز بعد", detail: "أضف بيانات Discord الآمنة، ثم راجع متطلبات قاعدة البيانات قبل التشغيل.", tone: "danger" },
   disabled_by_policy: { label: "متوقف بأمان", title: "Gateway متوقف بسياسة الأمان", detail: "الموقع يعمل، لكن اتصال البوت بـDiscord مقفول حتى تجهّز قاعدة البيانات والاستضافة المناسبة.", tone: "warning" },
+  blocked_by_readiness: { label: "محجوب لعدم الجاهزية", title: "لم يبدأ Gateway لأن قاعدة البيانات غير جاهزة", detail: "توقف الخادم عن الاتصال بـDiscord حتى ينجح فحص قاعدة البيانات والترحيلات. لا توجد محاولة تشغيل قسرية.", tone: "warning" },
   connecting: { label: "جارٍ الاتصال", title: "يحاول الاتصال بـDiscord", detail: "لم يُعلن Discord أن Gateway جاهز بعد؛ انتظر التحديث التالي.", tone: "info" },
   ready: { label: "متصل", title: "Gateway متصل بـDiscord", detail: "هذه حالة الاتصال الحالية التي أبلغ عنها Discord.", tone: "success" },
   degraded: { label: "يحتاج مراجعة", title: "الاتصال يحتاج مراجعة", detail: "تعذر إكمال بعض وظائف الاتصال؛ راجع رمز الخطأ والمتطلبات أدناه.", tone: "danger" },

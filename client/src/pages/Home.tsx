@@ -73,6 +73,7 @@ const ModuleCenter = lazy(() => import("@/components/ModuleCenter"));
 const DiscordConnection = lazy(() => import("@/components/DiscordConnection"));
 const CommunityConsole = lazy(() => import("@/components/CommunityConsole"));
 const BotOperationsPage = lazy(() => import("@/components/BotOperationsPage"));
+const OwnerConsole = lazy(() => import("@/components/OwnerConsole"));
 
 type IconType = typeof ShieldCheck;
 
@@ -106,6 +107,7 @@ const navGroups: { label: string; items: { id: DashboardSection; label: string; 
     items: [
       { id: "connection", label: "ربط Discord", icon: Radio },
       { id: "operations", label: "مركز تشغيل البوت", icon: Bot },
+      { id: "owner", label: "لوحة الملاك", icon: KeyRound },
       { id: "team", label: "الفريق والصلاحيات", icon: Users },
       { id: "plans", label: "التراخيص والباقات", icon: Sparkles },
       { id: "settings", label: "إعدادات النظام", icon: Settings2 },
@@ -128,6 +130,7 @@ const sectionMeta: Record<DashboardSection, { title: string; subtitle: string }>
   plans: { title: "التراخيص والباقات", subtitle: "مساحة جاهزة لإدارة التراخيص على مستوى الخادم." },
   settings: { title: "إعدادات النظام", subtitle: "التنبيهات، اللغة، والسلوك الافتراضي." },
   operations: { title: "مركز تشغيل البوت", subtitle: "حالة Gateway الحقيقية ومتطلبات التشغيل، دون كشف أسرار." },
+  owner: { title: "لوحة الملاك", subtitle: "مساحة تشغيل محمية؛ تحقق متعدد الطبقات ولا تكشف الأسرار." },
 };
 
 function BrandMark({ small = false }: { small?: boolean }) {
@@ -672,10 +675,10 @@ function Toast({ message, onClose }: { message: ToastMessage; onClose: () => voi
   return <div className={`toast-card toast-${message.kind ?? "info"}`} role="status"><span className="toast-symbol">{message.kind === "success" ? <CheckCircle2 size={17} /> : message.kind === "warning" ? <AlertTriangle size={17} /> : <CircleHelp size={17} />}</span><div><strong>{message.title}</strong>{message.detail && <span>{message.detail}</span>}</div><button className="icon-button" onClick={onClose} aria-label="إغلاق الإشعار"><X size={15} /></button></div>;
 }
 
-function SystemixDashboard() {
+function SystemixDashboard({ initialSection = "overview" }: { initialSection?: DashboardSection }) {
   const discordConnection = useDiscordDashboard();
   const selectedGuild = discordConnection.data.guilds.find((guild) => guild.id === discordConnection.selectedGuildId) ?? null;
-  const [active, setActive] = useState<DashboardSection>("overview");
+  const [active, setActive] = useState<DashboardSection>(initialSection);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [panicOpen, setPanicOpen] = useState(false);
   const [emergency, setEmergency] = useState(false);
@@ -703,6 +706,7 @@ function SystemixDashboard() {
       case "connection": return <Suspense fallback={<div className="panel discord-loading">جار تحميل ربط Discord...</div>}><DiscordConnection connection={discordConnection.data} loading={discordConnection.loading} dashboardError={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onSelectGuild={discordConnection.selectGuild} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onNotice={notify} /></Suspense>;
       case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter bot={discordConnection.data.bot} selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} onToast={notify} /></Suspense>;
       case "operations": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز تشغيل البوت...</div>}><BotOperationsPage data={discordConnection.data} loading={discordConnection.loading} error={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onRefresh={discordConnection.refresh} onNavigate={setActive} /></Suspense>;
+      case "owner": return <Suspense fallback={<div className="panel discord-loading">جار تحميل لوحة الملاك...</div>}><OwnerConsole discordUser={discordConnection.data.user} oauthConfigured={discordConnection.data.oauthConfigured} onConnect={connectDiscord} onNavigate={setActive} /></Suspense>;
       case "protection": return discordConnection.selectedGuildId
         ? <ProtectionConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} />
         : <ProtectionPage onToast={notify} />;
@@ -736,6 +740,6 @@ function SystemixDashboard() {
   </div>;
 }
 
-export default function Home() {
-  return <SystemixDashboard />;
+export default function Home({ initialSection }: { initialSection?: DashboardSection } = {}) {
+  return <SystemixDashboard initialSection={initialSection} />;
 }
