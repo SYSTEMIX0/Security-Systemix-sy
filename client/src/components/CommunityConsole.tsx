@@ -14,6 +14,9 @@ function errorMessage(error: unknown): string {
   if (error instanceof DiscordApiError && error.code === "ticket_bot_not_installed") return "ثبّت البوت في هذا السيرفر وشغّله قبل تفعيل نظام التذاكر.";
   if (error instanceof DiscordApiError && error.code === "ticket_category_or_panel_required") return "لتفعيل التذاكر اختر فئة التذاكر وقناة اللوحة النصية أولاً.";
   if (error instanceof DiscordApiError && (error.code === "ticket_staff_role_required" || error.code === "ticket_staff_role_invalid")) return "لتفعيل التذاكر اختر رتبة دعم حقيقية وقابلة للاستخدام، ولا تستخدم رتبة @everyone أو رتبة تطبيق مُدارة.";
+  if (error instanceof DiscordApiError && error.code === "subscription_lookup_unavailable") return "تعذّر فحص اشتراك هذا السيرفر من قاعدة البيانات؛ لم نعرض إعدادات قديمة أو ننفّذ أي تغيير.";
+  if (error instanceof DiscordApiError && error.code === "discord_session_expired") return "انتهت جلسة Discord. أعد ربط حسابك من صفحة «ربط Discord» ثم حدّث هذه الصفحة.";
+  if (error instanceof DiscordApiError && (error.code === "discord_api_unavailable" || error.code === "discord_rate_limited")) return "Discord غير متاح مؤقتاً أو طلباتك محدودة. انتظر دقيقة ثم أعد المحاولة.";
   if (error instanceof DiscordApiError && error.status === 403) return "لا تملك صلاحية إدارة هذا السيرفر في Discord.";
   return "تعذّر تحميل إعدادات المجتمع أو حفظها. تحقق من الاتصال ثم أعد المحاولة.";
 }

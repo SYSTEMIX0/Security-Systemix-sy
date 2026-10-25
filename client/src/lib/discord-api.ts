@@ -122,6 +122,15 @@ export type DiscordSecurityEvent = {
   createdAt: string;
 };
 
+export type GuildBackupSummary = {
+  id: number;
+  kind: "manual" | "auto" | "pre_incident";
+  label: string;
+  roleCount: number;
+  channelCount: number;
+  createdAt: string;
+};
+
 export class DiscordApiError extends Error {
   constructor(public readonly status: number, public readonly code: string) {
     super(code);
@@ -163,6 +172,7 @@ export const discordApi = {
   loadGuildSettings: (guildId: string) => readJson<DiscordGuildSnapshot>(`/api/discord/guilds/${encodeURIComponent(guildId)}/settings`),
   loadGuildMeta: (guildId: string) => readJson<GuildMeta>(`/api/discord/guilds/${encodeURIComponent(guildId)}/meta`),
   loadGuildEvents: (guildId: string) => readJson<{ events: DiscordSecurityEvent[] }>(`/api/discord/guilds/${encodeURIComponent(guildId)}/events?limit=30`),
+  loadGuildBackups: (guildId: string) => readJson<{ backups: GuildBackupSummary[] }>(`/api/discord/guilds/${encodeURIComponent(guildId)}/backups`),
   async saveGuildSettings(guildId: string, patch: GuildSecurityPatch, confirmation: "CONFIRM_SETTINGS" | "ENABLE_PROTECTION") {
     return readJson<{ ok: true; settings: GuildSecurityConfig }>(
       `/api/discord/guilds/${encodeURIComponent(guildId)}/settings`,
@@ -173,6 +183,12 @@ export const discordApi = {
     return readJson<{ ok: true; changes: { name: string; id: string; action: "created" | "updated" | "unchanged" | "disabled" }[]; note: string }>(
       `/api/discord/guilds/${encodeURIComponent(guildId)}/automod/apply`,
       { method: "POST", headers: { "Content-Type": "application/json", ...(await csrfHeader()) }, body: JSON.stringify({ confirm: "APPLY_AUTOMOD" }) },
+    );
+  },
+  async createGuildBackup(guildId: string, label?: string) {
+    return readJson<{ ok: true; backup: GuildBackupSummary }>(
+      `/api/discord/guilds/${encodeURIComponent(guildId)}/backups`,
+      { method: "POST", headers: { "Content-Type": "application/json", ...(await csrfHeader()) }, body: JSON.stringify(label?.trim() ? { label: label.trim() } : {}) },
     );
   },
   async getInviteUrl(guildId: string) {

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { registerAutoModApi } from "./api/automod";
+import { registerBackupsApi } from "./api/backups";
 import { asyncRoute, apiError, validateMutation } from "./api/common";
 import { registerCommunityApi } from "./api/community";
 import { registerCoreApi } from "./api/core";
@@ -69,6 +70,7 @@ export function registerDiscordRoutes(app: Express): void {
 
   registerCoreApi(app);
   registerAutoModApi(app);
+  registerBackupsApi(app);
   registerSecurityApi(app);
   registerModerationApi(app);
   registerCommunityApi(app);

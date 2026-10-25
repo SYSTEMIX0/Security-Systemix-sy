@@ -78,6 +78,9 @@ const OwnerConsole = lazy(() => import("@/components/OwnerConsole"));
 const SystemSettingsConsole = lazy(() => import("@/components/SystemSettingsConsole"));
 const LiveEventsConsole = lazy(() => import("@/components/LiveEventsConsole"));
 const UnavailableFeaturePanel = lazy(() => import("@/components/UnavailableFeaturePanel"));
+const BackupsConsole = lazy(() => import("@/components/BackupsConsole"));
+const DelegationConsole = lazy(() => import("@/components/DelegationConsole"));
+const PolicyListsConsole = lazy(() => import("@/components/PolicyListsConsole"));
 
 type IconType = typeof ShieldCheck;
 
@@ -734,15 +737,21 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
       case "community": return discordConnection.selectedGuildId
         ? <Suspense fallback={<div className="panel discord-loading">جار تحميل إدارة المجتمع...</div>}><CommunityConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
         : guildRequired("إدارة المجتمع", "إعدادات المجتمع الحية مرتبطة بسيرفر Discord محدد.");
-      case "delegation": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة التفويض...</div>}><UnavailableFeaturePanel title="تفويض الصلاحيات" description="محرك التفويض موجود في البوت، لكن محرر grants الآمن لم يكتمل بعد." reason="لا نعرض موظفين أو تفويضات نموذجية ولا نسمح بتعديلها قبل توفير API وواجهة تأكيد وتدقيق مخصصة." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
+      case "delegation": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل التفويضات الحية...</div>}><DelegationConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
+        : guildRequired("تفويض الصلاحيات", "التفويضات الفعلية لا تظهر إلا بعد اختيار سيرفر مخوّل.");
       case "incidents": return discordConnection.selectedGuildId
         ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل الحوادث الحية...</div>}><LiveEventsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} view="incidents" /></Suspense>
         : guildRequired("مركز الحوادث", "الحوادث تُقرأ من سجل السيرفر المحدد فقط.");
       case "logs": return discordConnection.selectedGuildId
         ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل سجل التدقيق الحي...</div>}><LiveEventsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} view="logs" /></Suspense>
         : guildRequired("سجل التدقيق", "السجل الحي لا يعرض سوى أحداث السيرفر المختار.");
-      case "lists": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة القوائم...</div>}><UnavailableFeaturePanel title="قوائم السماح والمنع" description="الواجهة العامة للقوائم لم تُبن بعد." reason="حقول الاستثناء المتخصصة داخل سياسات الحماية موجودة، لكن لا يوجد معنى موحد ومطبق بعد لقائمة عامة للأعضاء أو البوتات أو القنوات." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
-      case "backups": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة النسخ...</div>}><UnavailableFeaturePanel title="النسخ والاستعادة" description="لا يوجد حالياً API لوحة آمن لإنشاء أو استعادة النسخ." reason="لن نعرض نسخاً افتراضية أو زر استعادة لا ينفذ شيئاً. الاستعادة تبقى محجوبة حتى تبنى بخطة أثر وتأكيد وتدقيق." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
+      case "lists": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل استثناءات الحماية...</div>}><PolicyListsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
+        : guildRequired("قوائم السماح والمنع", "الاستثناءات الفعلية لا تظهر إلا بعد اختيار سيرفر مخوّل.");
+      case "backups": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل النسخ البنيوية...</div>}><BackupsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
+        : guildRequired("النسخ والاستعادة", "النسخ الفعلية لا تظهر إلا بعد اختيار سيرفر مخوّل.");
       case "team": return <TeamPage selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} memberIntentEnabled={discordConnection.data.bot.memberIntentEnabled ?? false} />;
       case "plans": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة التراخيص...</div>}><UnavailableFeaturePanel title="التراخيص والاشتراكات" description="البيع والتحويل اليدوي يحتاجان سجل اشتراك وتفعيل من لوحة المالك قبل ظهورهما للعملاء." reason="لا يوجد تحصيل أو تجديد أو ترخيص حي في هذه النسخة بعد، لذلك أزلنا باقات وأسعار العرض بدلاً من تسويقها كخدمة قائمة." /></Suspense>;
       case "settings": return discordConnection.selectedGuildId

@@ -67,6 +67,32 @@ function assertUsableTicketConfiguration(guildId: string, settings: ReturnType<t
   }
 }
 
+/** Prevent a saved grant from becoming a loosely-defined privilege editor. Runtime checks remain the final authority. */
+function assertUsableDelegationConfiguration(guildId: string, settings: ReturnType<typeof mergeGuildSecurityConfig>): void {
+  if (!settings.delegation.enabled) return;
+  const guild = getDiscordClient()?.guilds.cache.get(guildId);
+  if (!guild) throw new ApiError(409, "delegation_bot_not_installed");
+  const logChannel = settings.delegation.logChannelId ? guild.channels.cache.get(settings.delegation.logChannelId) : null;
+  if (!logChannel?.isTextBased() || !("send" in logChannel)) throw new ApiError(400, "delegation_log_channel_required");
+
+  const grantIds = new Set<string>();
+  for (const grant of settings.delegation.grants) {
+    if (grantIds.has(grant.id)) throw new ApiError(400, "delegation_grant_duplicate");
+    grantIds.add(grant.id);
+    if (!grant.actorRoleIds.length || new Set(grant.actorRoleIds).size !== grant.actorRoleIds.length) throw new ApiError(400, "delegation_grant_invalid");
+    if (!grant.actorRoleIds.every((id) => {
+      const role = guild.roles.cache.get(id);
+      return Boolean(role && !role.managed && role.id !== guild.id);
+    })) throw new ApiError(400, "delegation_actor_role_invalid");
+    if (new Set(grant.targetRoleIds).size !== grant.targetRoleIds.length || grant.targetRoleIds.some((id) => grant.protectedRoleIds.includes(id))) throw new ApiError(400, "delegation_target_role_invalid");
+    if ((grant.action === "add_role" || grant.action === "remove_role") && !grant.targetRoleIds.length) throw new ApiError(400, "delegation_target_role_required");
+    if (!grant.targetRoleIds.every((id) => {
+      const role = guild.roles.cache.get(id);
+      return Boolean(role && isAssignableRole(role) && !isDangerousRole(role));
+    })) throw new ApiError(400, "delegation_target_role_invalid");
+  }
+}
+
 export function registerCoreApi(app: Express): void {
   guildGet(app, "/invite", async ({ guild }, _req, res) => {
     const params = new URLSearchParams({
@@ -143,7 +169,12 @@ export function registerCoreApi(app: Express): void {
 
   guildGet(app, "/settings", async ({ guild: summary }, _req, res) => {
     const settings = await loadGuildConfig(summary.id);
-    const subscription = await db.getGuildSubscription(summary.id);
+    let subscription: Awaited<ReturnType<typeof db.getGuildSubscription>>;
+    try {
+      subscription = await db.getGuildSubscription(summary.id);
+    } catch {
+      throw new ApiError(503, "subscription_lookup_unavailable");
+    }
     const botGuild = getDiscordClient()?.guilds.cache.get(summary.id);
     const me = botGuild?.members.me;
     const state = getDiscordBotState();
@@ -175,6 +206,7 @@ export function registerCoreApi(app: Express): void {
     const current = await loadGuildConfig(summary.id);
     const settings = mergeGuildSecurityConfig(current, parsed.data);
     assertUsableTicketConfiguration(summary.id, settings);
+    assertUsableDelegationConfiguration(summary.id, settings);
     const botState = getDiscordBotState();
     if (parsed.data.antiRaid?.enabled === true && !current.antiRaid.enabled && !botState.memberIntentEnabled) {
       throw new ApiError(409, "guild_members_intent_required");

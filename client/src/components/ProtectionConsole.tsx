@@ -16,6 +16,10 @@ function errorMessage(error: unknown): string {
     if (error.code === "guild_members_intent_required") return "تعذّر تفعيل Anti-Raid: فعّل Guild Members Intent في Discord Developer Portal ثم أعد تشغيل البوت.";
     if (error.code === "message_content_intent_required") return "تعذّر تفعيل Anti-Spam: فعّل Message Content Intent في Discord Developer Portal ثم أعد تشغيل البوت.";
     if (error.code === "guild_config_unavailable") return "تعذّر قراءة سياسة الحماية من قاعدة البيانات؛ لم يُنفذ أي إجراء أمني.";
+    if (error.code === "subscription_lookup_unavailable") return "تعذّر فحص حالة اشتراك السيرفر من قاعدة البيانات؛ أبقينا الحماية في وضع آمن ولم نعرض إعدادات قديمة.";
+    if (error.code === "discord_session_expired") return "انتهت جلسة Discord. افتح «ربط Discord» وأعد ربط حسابك ثم ارجع إلى هذه الصفحة.";
+    if (error.code === "discord_api_unavailable" || error.code === "discord_rate_limited") return "Discord غير متاح مؤقتاً أو طلباتك محدودة. انتظر دقيقة ثم أعد المحاولة.";
+    if (error.code === "bot_not_ready") return "البوت يعيد الاتصال حالياً. انتظر حتى يظهر متصلاً ثم حدّث الصفحة.";
     if (error.status === 403) return "لا تملك صلاحية إدارة هذا السيرفر في Discord.";
   }
   return "تعذّر تحميل إعدادات الحماية أو حفظها. تحقق من الاتصال ثم أعد المحاولة.";

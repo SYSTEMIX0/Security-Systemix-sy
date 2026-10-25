@@ -107,9 +107,10 @@ export async function createGuildBackup(
   kind: "manual" | "auto" | "pre_incident",
   label: string,
 ): Promise<GuildBackupRow | null> {
+  let row: GuildBackupRow;
   try {
     const snapshot = collectStructure(guild);
-    const row = await insertGuildBackup({
+    row = await insertGuildBackup({
       guildId: guild.id,
       createdById,
       kind,
@@ -120,6 +121,14 @@ export async function createGuildBackup(
     });
     const config = await getGuildConfig(guild.id);
     await trimGuildBackups(guild.id, config.backups.retain);
+  } catch (error) {
+    logSafe(`Backup creation failed for guild ${guild.id}`, error);
+    return null;
+  }
+
+  // The caller has already written an audit precondition before this function is used from
+  // the dashboard. A best-effort summary event must not claim the stored snapshot failed.
+  try {
     await recordEvent({
       guildId: guild.id,
       eventType: "backup_created",
@@ -127,11 +136,10 @@ export async function createGuildBackup(
       severity: "low",
       details: { backupId: row.id, kind, roleCount: row.roleCount, channelCount: row.channelCount },
     });
-    return row;
   } catch (error) {
-    logSafe(`Backup creation failed for guild ${guild.id}`, error);
-    return null;
+    logSafe(`Backup event record failed for guild ${guild.id}`, error);
   }
+  return row;
 }
 
 async function takeAutoBackupIfDue(guild: Guild, actorId: string): Promise<void> {
