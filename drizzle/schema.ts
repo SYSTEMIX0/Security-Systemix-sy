@@ -98,7 +98,7 @@ export const tickets = mysqlTable("tickets", {
   channelId: varchar("channelId", { length: 20 }),
   openerId: varchar("openerId", { length: 20 }).notNull(),
   topic: varchar("topic", { length: 80 }).notNull(),
-  status: mysqlEnum("status", ["open", "claimed", "closed"]).default("open").notNull(),
+  status: mysqlEnum("status", ["open", "claimed", "closing", "closed"]).default("open").notNull(),
   claimedById: varchar("claimedById", { length: 20 }),
   closedById: varchar("closedById", { length: 20 }),
   closeReason: varchar("closeReason", { length: 512 }),
@@ -112,6 +112,19 @@ export const tickets = mysqlTable("tickets", {
   index("tickets_guild_opener_idx").on(table.guildId, table.openerId, table.status),
   index("tickets_channel_idx").on(table.channelId),
 ]);
+
+/** Per-guild counter locked during ticket reservation to keep ticket numbers sequential. */
+export const ticketSequences = mysqlTable("ticket_sequences", {
+  guildId: varchar("guildId", { length: 20 }).primaryKey(),
+  nextTicketNumber: int("nextTicketNumber").notNull(),
+});
+
+/** One locked row per member/Guild prevents concurrent clicks from bypassing ticket limits. */
+export const ticketOpenCounts = mysqlTable("ticket_open_counts", {
+  guildId: varchar("guildId", { length: 20 }).notNull(),
+  openerId: varchar("openerId", { length: 20 }).notNull(),
+  openCount: int("openCount").default(0).notNull(),
+}, (table) => [primaryKey({ columns: [table.guildId, table.openerId] })]);
 
 export const memberLevels = mysqlTable("member_levels", {
   guildId: varchar("guildId", { length: 20 }).notNull(),

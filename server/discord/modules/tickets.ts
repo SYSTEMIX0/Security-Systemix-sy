@@ -1,94 +1,229 @@
-import { ActionRowBuilder, ChannelType, PermissionFlagsBits, SlashCommandBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, type GuildMember } from "discord.js";
-import type { SystemixModule } from "../core/types";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  EmbedBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+  StringSelectMenuBuilder,
+  type GuildMember,
+} from "discord.js";
+import type { ComponentInteraction, SystemixModule } from "../core/types";
 import { customId } from "../core/types";
-import { getGuildConfig, replyEphemeral, logSafe, isStaffMember } from "../core/context";
-import { createTicket, listOpenTickets, setTicketChannel, getTicketByChannel, closeTicket, claimTicket } from "../store/tickets";
+import { getGuildConfig, isStaffMember, logSafe } from "../core/context";
+import {
+  TicketLimitReachedError,
+  beginTicketClose,
+  cancelTicketReservation,
+  claimTicket,
+  createTicket,
+  finishTicketClose,
+  getTicketByChannel,
+  restoreTicketAfterCloseFailure,
+  setTicketChannel,
+} from "../store/tickets";
 
 export function cleanTicketChannelName(name: string): string {
   const value = name.normalize("NFKD").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   return value || "ticket";
 }
 
+export function ticketChannelPrefix(topicId: string): string {
+  const names: Record<string, string> = {
+    "open-ticket": "open-ticket",
+    "middleman-ticket": "middleman-ticket",
+    "levelup-ticket": "levelup-ticket",
+  };
+  return names[topicId] ?? cleanTicketChannelName(`ticket-${topicId}`);
+}
+
 export function canManageTicket(actorId: string, openerId: string, staff: boolean): boolean {
   return actorId === openerId || staff;
 }
 
-const command = new SlashCommandBuilder().setName("ticket").setDescription("إدارة التذاكر")
-  .addSubcommand((sub) => sub.setName("panel").setDescription("نشر لوحة فتح التذاكر"));
+type TicketInteraction = Parameters<NonNullable<SystemixModule["onCommand"]>>[0] | ComponentInteraction;
 
-async function handleCommand(interaction: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]) {
-  const cfg = await getGuildConfig(interaction.guildId).then((value) => value.tickets);
-  if (!cfg.enabled) return replyEphemeral(interaction, "نظام التذاكر غير مفعّل.");
-  if (!isStaffMember(interaction.member as GuildMember, await getGuildConfig(interaction.guildId))) return replyEphemeral(interaction, "هذا الأمر مخصص لفريق الدعم.");
-  if (interaction.options.getSubcommand() !== "panel") return;
-  const channel = cfg.panelChannelId ? interaction.guild.channels.cache.get(cfg.panelChannelId) : null;
-  if (!channel?.isTextBased() || !("send" in channel)) return replyEphemeral(interaction, "قناة اللوحة غير متاحة.");
-  const menu = new StringSelectMenuBuilder().setCustomId(customId("tickets", "open")).setPlaceholder("اختر موضوع التذكرة").addOptions(
-    cfg.topics.map((topic) => ({ label: topic.label, value: topic.id, description: topic.description || undefined, emoji: topic.emoji || undefined })));
-  await channel.send({ embeds: [new EmbedBuilder().setTitle(cfg.panelTitle).setDescription(cfg.panelDescription)], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)], allowedMentions: { parse: [] } });
-  await replyEphemeral(interaction, "تم نشر اللوحة.");
+async function deferTicketReply(interaction: TicketInteraction): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  }
 }
 
-async function onComponent(interaction: Parameters<NonNullable<SystemixModule["onComponent"]>>[0]) {
+async function respond(interaction: TicketInteraction, content: string): Promise<void> {
+  try {
+    if (interaction.deferred) {
+      await interaction.editReply({ content, allowedMentions: { parse: [] } });
+    } else if (interaction.replied) {
+      await interaction.followUp({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    } else {
+      await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    }
+  } catch (error) {
+    logSafe("Ticket interaction response failed", error);
+  }
+}
+
+function supportRoles(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], config: Awaited<ReturnType<typeof getGuildConfig>>) {
+  const roleIds = [...new Set([...config.tickets.staffRoleIds, ...config.general.staffRoleIds])]
+    .filter((id) => id !== guild.id);
+  return roleIds.map((id) => guild.roles.cache.get(id)).filter((role): role is NonNullable<typeof role> => Boolean(role));
+}
+
+const command = new SlashCommandBuilder().setName("ticket").setDescription("إدارة التذاكر")
+  .addSubcommand((sub) => sub.setName("panel").setDescription("نشر أو تحديث لوحة فتح التذاكر"));
+
+function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"]) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(customId("tickets", "open"))
+    .setPlaceholder("اختر نوع تذكرتك")
+    .addOptions(cfg.topics.map((topic) => ({
+      label: topic.label,
+      value: topic.id,
+      description: topic.description || undefined,
+      emoji: topic.emoji || undefined,
+    })));
+  return {
+    embeds: [new EmbedBuilder().setTitle(cfg.panelTitle).setDescription(cfg.panelDescription)],
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    allowedMentions: { parse: [] as [] },
+  };
+}
+
+async function handleCommand(interaction: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]) {
+  await deferTicketReply(interaction);
+  const config = await getGuildConfig(interaction.guildId);
+  const cfg = config.tickets;
+  if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
+  if (!isStaffMember(interaction.member as GuildMember, config)) return respond(interaction, "هذا الأمر مخصص لفريق الدعم.");
+  if (interaction.options.getSubcommand() !== "panel") return respond(interaction, "الأمر غير متاح.");
+  const channel = cfg.panelChannelId ? interaction.guild.channels.cache.get(cfg.panelChannelId) : null;
+  if (!channel?.isTextBased() || !("send" in channel)) return respond(interaction, "قناة لوحة التذاكر غير متاحة.");
+  if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
+
+  try {
+    const payload = ticketPanel(cfg);
+    const recent = await channel.messages.fetch({ limit: 25 });
+    const panelId = customId("tickets", "open");
+    const existing = recent.find((message) => message.author.id === interaction.client.user.id
+      && message.components.some((row) => "components" in row
+        && Array.isArray(row.components)
+        && row.components.some((component) => "customId" in component && component.customId === panelId)));
+    if (existing) {
+      await existing.edit(payload);
+      return respond(interaction, "تم تحديث لوحة التذاكر الموجودة في القناة.");
+    }
+    await channel.send(payload);
+    return respond(interaction, "تم نشر لوحة التذاكر.");
+  } catch (error) {
+    logSafe(`Ticket panel publish failed in guild ${interaction.guildId}`, error);
+    return respond(interaction, "تعذر نشر لوحة التذاكر. تأكد من صلاحية إرسال الرسائل والروابط.");
+  }
+}
+
+async function onComponent(interaction: ComponentInteraction) {
+  await deferTicketReply(interaction);
   const [action, arg] = interaction.customId.split(":").slice(2);
   const guild = interaction.guild;
-  if (!guild) return replyEphemeral(interaction, "تعذر تحديد السيرفر.");
+  if (!guild) return respond(interaction, "تعذر تحديد السيرفر.");
   const config = await getGuildConfig(guild.id);
   const cfg = config.tickets;
-  if (!cfg.enabled) return replyEphemeral(interaction, "نظام التذاكر غير مفعّل.");
+  if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
   const member = interaction.member as GuildMember;
+
   if (action === "open" && interaction.isStringSelectMenu()) {
     const topic = cfg.topics.find((item) => item.id === interaction.values[0]);
-    if (!topic || !cfg.categoryId) return replyEphemeral(interaction, "موضوع أو تصنيف التذاكر غير صالح.");
+    if (!topic || !cfg.categoryId) return respond(interaction, "موضوع أو تصنيف التذاكر غير صالح.");
     const category = guild.channels.cache.get(cfg.categoryId);
     const me = guild.members.me;
-    if (!category || category.type !== ChannelType.GuildCategory || !me?.permissions.has(PermissionFlagsBits.ManageChannels)) return replyEphemeral(interaction, "إعدادات التذاكر أو صلاحية Manage Channels غير متاحة.");
-    const roles = cfg.staffRoleIds.map((id) => guild.roles.cache.get(id));
-    if (roles.some((role) => !role)) return replyEphemeral(interaction, "يوجد دور دعم غير موجود.");
-    if (roles.some((role) => role!.managed || me.roles.highest.comparePositionTo(role!) <= 0)) return replyEphemeral(interaction, "ترتيب أدوار البوت لا يسمح بتطبيق صلاحيات الدعم بأمان.");
+    if (!category || category.type !== ChannelType.GuildCategory || !me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+      return respond(interaction, "إعدادات التذاكر أو صلاحية Manage Channels غير متاحة.");
+    }
+    const configuredRoleIds = [...new Set([...cfg.staffRoleIds, ...config.general.staffRoleIds])];
+    if (!configuredRoleIds.length || configuredRoleIds.includes(guild.id)) {
+      return respond(interaction, "عيّن رتبة دعم حقيقية واحدة على الأقل؛ لا يمكن استخدام رتبة @everyone.");
+    }
+    const roles = supportRoles(guild, config);
+    if (roles.length !== configuredRoleIds.length || roles.some((role) => role.managed)) {
+      return respond(interaction, "يوجد دور دعم غير موجود أو مُدار من تطبيق آخر. صحّح أدوار فريق الدعم أولاً.");
+    }
+
+    let ticket: Awaited<ReturnType<typeof createTicket>> | undefined;
+    let channel: Awaited<ReturnType<typeof guild.channels.create>> | undefined;
     try {
-      const open = await listOpenTickets(guild.id, member.id);
-      if (open.length >= cfg.maxOpenPerUser) return replyEphemeral(interaction, "بلغت الحد الأقصى للتذاكر المفتوحة.");
-      const ticket = await createTicket({ guildId: guild.id, openerId: member.id, topic: topic.id });
-      let channel;
-      try {
-        channel = await guild.channels.create({ name: cleanTicketChannelName(`ticket-${ticket.ticketNumber}-${member.user.username}`), type: ChannelType.GuildText, parent: category.id,
-          permissionOverwrites: [
-            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-            { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-            ...roles.map((role) => ({ id: role!.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
-            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
-          ] });
-        await setTicketChannel(guild.id, ticket.id, channel.id);
-      } catch (error) {
-        if (channel) await channel.delete().catch(() => undefined);
-        await closeTicket(guild.id, ticket.id, member.id).catch(() => undefined);
-        throw error;
-      }
+      ticket = await createTicket({ guildId: guild.id, openerId: member.id, topic: topic.id, maxOpenPerUser: cfg.maxOpenPerUser });
+      channel = await guild.channels.create({
+        name: cleanTicketChannelName(`${ticketChannelPrefix(topic.id)}-${ticket.ticketNumber}`),
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+          ...roles.map((role) => ({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+        ],
+      });
+      await setTicketChannel(guild.id, ticket.id, channel.id);
       const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(customId("tickets", "claim", ticket.id)).setLabel("استلام").setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(customId("tickets", "close", ticket.id)).setLabel("إغلاق").setStyle(ButtonStyle.Danger));
+        new ButtonBuilder().setCustomId(customId("tickets", "close", ticket.id)).setLabel("إغلاق").setStyle(ButtonStyle.Danger),
+      );
       const text = cfg.openMessage.replace(/\{user\}/g, `<@${member.id}>`).slice(0, 1000);
       await channel.send({ content: text, components: [controls], allowedMentions: { users: [member.id], roles: [], parse: [] } });
-      await replyEphemeral(interaction, `تم فتح تذكرتك: <#${channel.id}>`);
-    } catch (error) { logSafe(`Ticket creation failed in guild ${guild.id}`, error); await replyEphemeral(interaction, "تعذر إنشاء التذكرة حالياً."); }
-    return;
+      return respond(interaction, `تم فتح تذكرتك: <#${channel.id}>`);
+    } catch (error) {
+      if (channel) await channel.delete("Ticket provisioning failed").catch((cleanupError) => logSafe(`Ticket channel cleanup failed in guild ${guild.id}`, cleanupError));
+      if (ticket) await cancelTicketReservation(guild.id, ticket.id, member.id).catch((cleanupError) => logSafe(`Ticket reservation cleanup failed in guild ${guild.id}`, cleanupError));
+      if (error instanceof TicketLimitReachedError) return respond(interaction, "بلغت الحد الأقصى للتذاكر المفتوحة.");
+      logSafe(`Ticket creation failed in guild ${guild.id}`, error);
+      return respond(interaction, "تعذر إنشاء التذكرة حالياً؛ لم تُترك تذكرة صالحة مفتوحة بسبب هذا الخطأ.");
+    }
   }
+
   if ((action === "close" || action === "claim") && arg && /^\d+$/.test(arg)) {
     const ticket = await getTicketByChannel(guild.id, interaction.channelId);
-    if (!ticket || ticket.id !== Number(arg) || ticket.status === "closed") return replyEphemeral(interaction, "التذكرة غير متاحة.");
+    if (!ticket || ticket.id !== Number(arg) || ticket.status === "closed" || ticket.status === "closing") return respond(interaction, "التذكرة غير متاحة.");
     const staff = isStaffMember(member, config) || cfg.staffRoleIds.some((id) => member.roles.cache.has(id));
-    if (action === "close") {
-      if (!canManageTicket(member.id, ticket.openerId, staff)) return replyEphemeral(interaction, "لا يمكنك إغلاق تذكرة شخص آخر.");
-      await closeTicket(guild.id, ticket.id, member.id);
-      await replyEphemeral(interaction, "تم إغلاق التذكرة. لن يتم حفظ أي نصوص رسائل.");
-      setTimeout(() => interaction.channel?.delete().catch(() => undefined), 1500).unref?.();
-    } else {
-      if (!staff) return replyEphemeral(interaction, "استلام التذكرة متاح لفريق الدعم فقط.");
-      await claimTicket(guild.id, ticket.id, member.id);
-      await replyEphemeral(interaction, "تم استلام التذكرة.");
+
+    if (action === "claim") {
+      if (!staff) return respond(interaction, "استلام التذكرة متاح لفريق الدعم فقط.");
+      const claimed = await claimTicket(guild.id, ticket.id, member.id);
+      if (claimed === "claimed") return respond(interaction, "تم استلام التذكرة.");
+      if (claimed === "already_claimed") return respond(interaction, "هذه التذكرة استلمها عضو دعم آخر بالفعل.");
+      return respond(interaction, "التذكرة لم تعد متاحة للاستلام.");
+    }
+
+    if (!canManageTicket(member.id, ticket.openerId, staff)) return respond(interaction, "لا يمكنك إغلاق تذكرة شخص آخر.");
+    const closingTicket = await beginTicketClose(guild.id, ticket.id);
+    if (!closingTicket) return respond(interaction, "التذكرة قيد الإغلاق أو أُغلقت بالفعل.");
+    let channelDeleted = !closingTicket.channelId;
+    try {
+      const ticketChannel = closingTicket.channelId ? await guild.channels.fetch(closingTicket.channelId).catch(() => null) : null;
+      if (ticketChannel) {
+        await ticketChannel.delete("Ticket closed through Security Systemix");
+        channelDeleted = true;
+      }
+      const finalized = await finishTicketClose(guild.id, ticket.id, member.id);
+      if (!finalized) throw new Error("ticket_close_finalize_failed");
+      return respond(interaction, "تم إغلاق التذكرة وحذف قناتها. لا يتم حفظ نصوص الرسائل في هذه النسخة.");
+    } catch (error) {
+      const previousStatus = ticket.status === "claimed" ? "claimed" : "open";
+      if (!channelDeleted) {
+        await restoreTicketAfterCloseFailure(guild.id, ticket.id, previousStatus).catch((restoreError) => logSafe(`Ticket close recovery failed in guild ${guild.id}`, restoreError));
+      }
+      logSafe(`Ticket close failed in guild ${guild.id}`, error);
+      if (channelDeleted) return respond(interaction, "حُذفت القناة، لكن تعذر توثيق الإغلاق في قاعدة البيانات. لا تفتح تذكرة بديلة؛ راجع مسؤول النظام لمعالجة السجل.");
+      return respond(interaction, "لم يُغلق الطلب لأن حذف القناة لم يكتمل. تحقق من صلاحية Manage Channels ثم أعد المحاولة.");
     }
   }
 }
 
-export const ticketsModule: SystemixModule = { name: "tickets", implemented: true, commands: [command.toJSON()], onCommand: handleCommand, componentPrefix: "tickets", onComponent };
+export const ticketsModule: SystemixModule = {
+  name: "tickets",
+  implemented: true,
+  commands: [command.toJSON()],
+  onCommand: handleCommand,
+  componentPrefix: "tickets",
+  onComponent,
+};

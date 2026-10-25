@@ -3,6 +3,7 @@ import {
   defaultGuildSecurityConfig,
   guildSecurityPatchSchema,
   mergeGuildSecurityConfig,
+  normalizeGuildSecurityConfig,
 } from "./config";
 import { evaluateRaidSignals, isSnowflake, matchesDiscordApplicationId } from "./security";
 
@@ -49,5 +50,19 @@ describe("risk signals", () => {
     expect(matchesDiscordApplicationId("1562540070802563162", "1562540070802563162")).toBe(true);
     expect(matchesDiscordApplicationId("1562540070802563162", "12345678901234567")).toBe(false);
     expect(matchesDiscordApplicationId("not-a-snowflake", "12345678901234567")).toBe(false);
+  });
+});
+
+describe("ticket topic upgrade", () => {
+  it("replaces the old preview topic pair with the three live ticket types", () => {
+    const config = normalizeGuildSecurityConfig({
+      tickets: {
+        topics: [
+          { id: "support", label: "دعم عام", emoji: "🛟", description: "سؤال" },
+          { id: "report", label: "بلاغ", emoji: "🚨", description: "بلاغ" },
+        ],
+      },
+    });
+    expect(config.tickets.topics.map((topic) => topic.id)).toEqual(["open-ticket", "middleman-ticket", "levelup-ticket"]);
   });
 });

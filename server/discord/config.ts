@@ -451,8 +451,9 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     panelDescription: "اختر نوع طلبك وسيفتح لك فريق الدعم تذكرة خاصة.",
     openMessage: "أهلاً {user}، وصلت تذكرتك. اشرح طلبك بالتفصيل وسيرد عليك الفريق قريباً.",
     topics: [
-      { id: "support", label: "دعم عام", emoji: "🛟", description: "سؤال أو مشكلة عامة" },
-      { id: "report", label: "بلاغ", emoji: "🚨", description: "الإبلاغ عن عضو أو مخالفة" },
+      { id: "open-ticket", label: "فتح تذكرة", emoji: "🎫", description: "دعم عام أو طلب مساعدة" },
+      { id: "middleman-ticket", label: "تذكرة وسيط", emoji: "🤝", description: "طلب إشراف وسيط على عملية" },
+      { id: "levelup-ticket", label: "تذكرة رفع مستوى", emoji: "📈", description: "طلب متعلق بالمستويات والمكافآت" },
     ],
   },
   welcome: {
@@ -525,6 +526,16 @@ function deepMerge(base: unknown, value: unknown): unknown {
 export function normalizeGuildSecurityConfig(value: unknown): GuildSecurityConfig {
   const stored = isPlainObject(value) ? value : {};
   const merged = deepMerge(defaultGuildSecurityConfig, stored) as PlainObject;
+  const storedTopics = isPlainObject(stored.tickets) && Array.isArray(stored.tickets.topics)
+    ? stored.tickets.topics
+    : null;
+  const legacyTopics = storedTopics?.length === 2
+    && storedTopics.every((topic) => isPlainObject(topic) && (topic.id === "support" || topic.id === "report"));
+  if (legacyTopics && isPlainObject(merged.tickets)) {
+    // Earlier previews exposed only support/report and had no editor for topics.
+    // Replace that known placeholder set with the real product ticket types.
+    merged.tickets.topics = defaultGuildSecurityConfig.tickets.topics;
+  }
   merged.version = 2;
   if (merged.mode !== "protect") merged.mode = "observe";
   const full = guildSecurityConfigSchema.safeParse(merged);

@@ -10,8 +10,11 @@ describe("production Discord Gateway readiness gate", () => {
     expect(shouldStartProductionGateway({ NODE_ENV: "production", SYSTEMIX_ENABLE_PRODUCTION_GATEWAY: "true" }, true)).toBe(true);
   });
 
-  it("keeps a production Gateway opt-in and allows the normal start path to report policy-disabled", () => {
-    expect(shouldStartProductionGateway({ NODE_ENV: "production", SYSTEMIX_ENABLE_PRODUCTION_GATEWAY: "false" }, false)).toBe(true);
+  it("keeps a production Gateway opt-in when the flag is missing or false", () => {
+    expect(shouldStartProductionGateway({ NODE_ENV: "production" }, true)).toBe(false);
+    expect(shouldStartProductionGateway({ NODE_ENV: "production", SYSTEMIX_ENABLE_PRODUCTION_GATEWAY: "false" }, true)).toBe(false);
+    expect(shouldStartProductionGateway({ NODE_ENV: "production" }, false)).toBe(false);
+    expect(shouldStartProductionGateway({ NODE_ENV: "production", SYSTEMIX_ENABLE_PRODUCTION_GATEWAY: "false" }, false)).toBe(false);
   });
 
   it("does not impose the production DB gate on local development", () => {

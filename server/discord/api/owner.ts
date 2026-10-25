@@ -90,7 +90,9 @@ export function registerOwnerApi(app: Express): void {
     if (!allowLoginAttempt(req, session?.user.id)) { res.status(429).json({ error: "owner_auth_failed" }); return; }
     const password = typeof req.body?.password === "string" && req.body.password.length <= 128 ? req.body.password : "";
     const eligible = isOwnerEligible(session?.user.id);
-    const validPassword = Boolean(session && eligible) && await verifyOwnerPassword(password);
+    // Always perform the same password verification for structurally valid input;
+    // otherwise timing can disclose whether a Discord account is on the allowlist.
+    const validPassword = await verifyOwnerPassword(password);
     // Do not reveal whether any individual credential was correct.
     if (!session || !eligible || !validPassword || !ownerConfigured()) {
       res.status(401).json({ error: "owner_auth_failed" });

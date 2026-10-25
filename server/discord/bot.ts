@@ -269,6 +269,24 @@ function stopIntervals(): void {
   while (timers.length) clearInterval(timers.pop()!);
 }
 
+/** Clears a dead client before an intentional retry; never touches a newer client. */
+function abandonTerminalClient(bot: Client, code: string, retry: boolean): void {
+  if (client !== bot) return;
+  stopIntervals();
+  const syncTimer = commandSyncRetryTimers.get(bot);
+  if (syncTimer) clearTimeout(syncTimer);
+  commandSyncRetryTimers.delete(bot);
+  commandSyncRetryAttempts.delete(bot);
+  runtimeState.status = "degraded";
+  runtimeState.readyAt = null;
+  runtimeState.guildCount = 0;
+  runtimeState.lastErrorCode = code;
+  client = null;
+  startPromise = null;
+  void bot.destroy().catch(() => undefined);
+  if (retry && process.env.SYSTEMIX_ENABLE_PRODUCTION_GATEWAY === "true") scheduleRetry();
+}
+
 function createClient(plan: IntentPlan): Client {
   const intents = [...BASE_INTENTS];
   if (plan.members) intents.push(GatewayIntentBits.GuildMembers);
@@ -322,7 +340,13 @@ function createClient(plan: IntentPlan): Client {
   bot.on(Events.GuildDelete, () => {
     runtimeState.guildCount = bot.guilds.cache.size;
   });
-  bot.on(Events.ShardDisconnect, () => {
+  bot.on(Events.ShardDisconnect, (event) => {
+    const closeCode = typeof event.code === "number" ? event.code : 0;
+    // discord.js cannot reconnect after these terminal close codes on its own.
+    if ([4004, 4011, 4013, 4014].includes(closeCode)) {
+      abandonTerminalClient(bot, `gateway_close_${closeCode}`, ![4004, 4014].includes(closeCode));
+      return;
+    }
     if (runtimeState.status === "ready") runtimeState.status = "connecting";
   });
   bot.on(Events.ShardReconnecting, () => {
@@ -337,8 +361,7 @@ function createClient(plan: IntentPlan): Client {
     if (runtimeState.readyAt) runtimeState.status = "ready";
   });
   bot.on(Events.Invalidated, () => {
-    runtimeState.status = "degraded";
-    runtimeState.lastErrorCode = "session_invalidated";
+    abandonTerminalClient(bot, "session_invalidated", true);
   });
   bot.on(Events.Error, (error) => {
     runtimeState.lastErrorCode = safeDiscordErrorCode(error);
@@ -356,7 +379,9 @@ function createClient(plan: IntentPlan): Client {
     void dispatch("onMessageDelete", message as never);
   });
   bot.on(Events.MessageUpdate, (before, after) => {
-    if (!after.inGuild() || after.author?.id === bot.user?.id) return;
+    // A partial update has no trustworthy author/member/content. Do not let it
+    // reach modules that would otherwise dereference missing message fields.
+    if (!after.inGuild() || after.partial || !after.author || after.author.id === bot.user?.id) return;
     void dispatch("onMessageUpdate", before as never, after);
   });
   bot.on(Events.GuildMemberAdd, (member) => {

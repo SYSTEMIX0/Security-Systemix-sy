@@ -50,6 +50,23 @@ function channelKind(channel: GuildBasedChannel): ChannelKind {
   }
 }
 
+function assertUsableTicketConfiguration(guildId: string, settings: ReturnType<typeof mergeGuildSecurityConfig>): void {
+  if (!settings.tickets.enabled) return;
+  const guild = getDiscordClient()?.guilds.cache.get(guildId);
+  if (!guild) throw new ApiError(409, "ticket_bot_not_installed");
+  const category = settings.tickets.categoryId ? guild.channels.cache.get(settings.tickets.categoryId) : null;
+  const panel = settings.tickets.panelChannelId ? guild.channels.cache.get(settings.tickets.panelChannelId) : null;
+  if (!category || category.type !== ChannelType.GuildCategory || !panel?.isTextBased() || !("send" in panel)) {
+    throw new ApiError(400, "ticket_category_or_panel_required");
+  }
+  const roleIds = [...new Set([...settings.general.staffRoleIds, ...settings.tickets.staffRoleIds])];
+  if (!roleIds.length || roleIds.includes(guild.id)) throw new ApiError(400, "ticket_staff_role_required");
+  for (const roleId of roleIds) {
+    const role = guild.roles.cache.get(roleId);
+    if (!role || role.managed) throw new ApiError(400, "ticket_staff_role_invalid");
+  }
+}
+
 export function registerCoreApi(app: Express): void {
   guildGet(app, "/invite", async ({ guild }, _req, res) => {
     const params = new URLSearchParams({
@@ -109,8 +126,10 @@ export function registerCoreApi(app: Express): void {
     const users: ResolvedUser[] = [];
     for (const id of unique) {
       const member = guild.members.cache.get(id) ?? await guild.members.fetch(id).catch(() => null);
-      const user = member?.user ?? guild.client.users.cache.get(id) ?? await guild.client.users.fetch(id).catch(() => null);
-      if (!user) continue;
+      // This dashboard endpoint is scoped to the authorized guild. Never use the
+      // global client user cache as a fallback: it may contain a member of another guild.
+      if (!member) continue;
+      const user = member.user;
       users.push({
         id: user.id,
         username: user.username,
@@ -155,6 +174,7 @@ export function registerCoreApi(app: Express): void {
     const confirmation = req.get(SETTINGS_CONFIRMATION_HEADER);
     const current = await loadGuildConfig(summary.id);
     const settings = mergeGuildSecurityConfig(current, parsed.data);
+    assertUsableTicketConfiguration(summary.id, settings);
     const botState = getDiscordBotState();
     if (parsed.data.antiRaid?.enabled === true && !current.antiRaid.enabled && !botState.memberIntentEnabled) {
       throw new ApiError(409, "guild_members_intent_required");

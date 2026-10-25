@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { discordApi, type DiscordDashboardData, type RuntimeReadiness } from "./discord-api";
 
 const emptyData: DiscordDashboardData = {
@@ -29,23 +29,29 @@ export function useDiscordDashboard() {
   const [readiness, setReadiness] = useState<RuntimeReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const newestRequest = useRef(0);
   const [selectedGuildId, setSelectedGuildIdState] = useState(() => {
     if (typeof window === "undefined") return "";
     return window.sessionStorage.getItem("systemix-selected-guild") ?? "";
   });
 
   const refresh = useCallback(async () => {
+    const requestId = newestRequest.current + 1;
+    newestRequest.current = requestId;
     setLoading(true);
     try {
       const [dashboardResult, readinessResult] = await Promise.allSettled([
         discordApi.loadDashboard(),
         discordApi.loadReadiness(),
       ]);
+      if (requestId !== newestRequest.current) return;
       setReadiness(readinessResult.status === "fulfilled" ? readinessResult.value : null);
       if (dashboardResult.status === "rejected") throw dashboardResult.reason;
       const next = dashboardResult.value;
       setData(next);
       setError(null);
+      setLastUpdated(new Date());
       setSelectedGuildIdState((current) => {
         if (next.guilds.some((guild) => guild.id === current)) return current;
         const fallback = next.guilds[0]?.id ?? "";
@@ -56,9 +62,9 @@ export function useDiscordDashboard() {
         return fallback;
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "request_failed");
+      if (requestId === newestRequest.current) setError(cause instanceof Error ? cause.message : "request_failed");
     } finally {
-      setLoading(false);
+      if (requestId === newestRequest.current) setLoading(false);
     }
   }, []);
 
@@ -77,5 +83,5 @@ export function useDiscordDashboard() {
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
-  return { data, readiness, loading, error, refresh, selectedGuildId, selectGuild };
+  return { data, readiness, loading, error, lastUpdated, stale: Boolean(error), refresh, selectedGuildId, selectGuild };
 }

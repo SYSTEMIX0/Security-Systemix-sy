@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, Save, Users } from "lucide-react";
 import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/discord/config";
 import type { GuildMeta } from "../../../shared/systemix-api";
@@ -11,6 +11,9 @@ type EditableSection = "tickets" | "giveaways" | "welcome" | "leveling" | "sugge
 
 function errorMessage(error: unknown): string {
   if (error instanceof DiscordApiError && error.code === "audit_precondition_failed") return "تعذّر تسجيل التغيير في سجل التدقيق؛ لم تُحفظ الإعدادات.";
+  if (error instanceof DiscordApiError && error.code === "ticket_bot_not_installed") return "ثبّت البوت في هذا السيرفر وشغّله قبل تفعيل نظام التذاكر.";
+  if (error instanceof DiscordApiError && error.code === "ticket_category_or_panel_required") return "لتفعيل التذاكر اختر فئة التذاكر وقناة اللوحة النصية أولاً.";
+  if (error instanceof DiscordApiError && (error.code === "ticket_staff_role_required" || error.code === "ticket_staff_role_invalid")) return "لتفعيل التذاكر اختر رتبة دعم حقيقية وقابلة للاستخدام، ولا تستخدم رتبة @everyone أو رتبة تطبيق مُدارة.";
   if (error instanceof DiscordApiError && error.status === 403) return "لا تملك صلاحية إدارة هذا السيرفر في Discord.";
   return "تعذّر تحميل إعدادات المجتمع أو حفظها. تحقق من الاتصال ثم أعد المحاولة.";
 }
@@ -25,11 +28,19 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
   const [problem, setProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const activeGuildId = useRef(guildId);
 
   useEffect(() => {
     let active = true;
+    activeGuildId.current = guildId;
     setLoading(true);
     setProblem("");
+    setNotice("");
+    setConfirmOpen(false);
+    // A previous guild draft must never be editable while this guild is loading.
+    setSnapshot(null);
+    setDraft(null);
+    setMeta(null);
     Promise.all([discordApi.loadGuildSettings(guildId), discordApi.loadGuildMeta(guildId).catch(() => null)])
       .then(([settings, guildMeta]) => {
         if (!active) return;
@@ -53,6 +64,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
 
   const save = async () => {
     if (!draft || !snapshot) return;
+    const saveGuildId = guildId;
     setSaving(true);
     setProblem("");
     setNotice("");
@@ -65,6 +77,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
         suggestions: draft.suggestions,
       };
       const result = await discordApi.saveGuildSettings(guildId, patch, draft.mode === "protect" ? "ENABLE_PROTECTION" : "CONFIRM_SETTINGS");
+      if (activeGuildId.current !== saveGuildId) return;
       setSnapshot((current) => current ? { ...current, settings: result.settings } : current);
       setDraft(result.settings);
       setNotice("حُفظت إعدادات المجتمع بعد تسجيل طلب التغيير في سجل التدقيق.");
@@ -77,11 +90,11 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
     }
   };
 
-  if (loading && !draft) return <section className="protection-console"><div className="pc-state"><LoaderCircle className="pc-spin" size={22} /> جارٍ تحميل إعدادات المجتمع...</div></section>;
-  if (!draft || !snapshot) return <section className="protection-console"><div className="pc-state pc-error"><AlertTriangle size={22} /><span>{problem || "تعذّر تحميل إعدادات السيرفر."}</span><button className="pc-button pc-button-secondary" onClick={() => setReloadKey((key) => key + 1)}><RefreshCw size={16} /> إعادة المحاولة</button></div></section>;
+  if (loading && !draft) return <section className="protection-console community-console"><div className="pc-state"><LoaderCircle className="pc-spin" size={22} /> جارٍ تحميل إعدادات المجتمع...</div></section>;
+  if (!draft || !snapshot) return <section className="protection-console community-console"><div className="pc-state pc-error"><AlertTriangle size={22} /><span>{problem || "تعذّر تحميل إعدادات السيرفر."}</span><button className="pc-button pc-button-secondary" onClick={() => setReloadKey((key) => key + 1)}><RefreshCw size={16} /> إعادة المحاولة</button></div></section>;
 
   return (
-    <section className="protection-console" dir="rtl">
+    <section className="protection-console community-console" dir="rtl">
       <header className="pc-header">
         <div><div className="pc-eyebrow"><Users size={15} /> إدارة المجتمع · إعدادات حية</div><h1>مجتمع {guildName}</h1><p>اضبط إعدادات الوحدات لهذا السيرفر. تُحفظ في قاعدة Systemix ويُسجل طلب التغيير قبل الكتابة.</p></div>
         <button className="pc-button pc-button-secondary" onClick={() => setReloadKey((key) => key + 1)} disabled={loading || saving}><RefreshCw size={16} /> تحديث</button>
@@ -96,13 +109,12 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
           <div className="pc-card-title"><div><span className="pc-icon pc-icon-blue">01</span><div><h2>التذاكر والدعم</h2><p>قنوات وفريق ورسائل مركز الدعم</p></div></div><SwitchRow label="تفعيل الوحدة" checked={draft.tickets.enabled} onChange={(checked) => updateSection("tickets", { enabled: checked })} /></div>
           <ChannelSelect label="فئة التذاكر" value={draft.tickets.categoryId} channels={categories} onChange={(value) => updateSection("tickets", { categoryId: value })} />
           <ChannelSelect label="قناة لوحة التذاكر" value={draft.tickets.panelChannelId} channels={textChannels} onChange={(value) => updateSection("tickets", { panelChannelId: value })} />
-          <ChannelSelect label="قناة النصوص المحفوظة" value={draft.tickets.transcriptChannelId} channels={textChannels} onChange={(value) => updateSection("tickets", { transcriptChannelId: value })} />
           <RolePicker label="رتب فريق الدعم" roles={roles} selected={draft.tickets.staffRoleIds} onChange={(value) => updateSection("tickets", { staffRoleIds: value })} />
           <NumberField label="أقصى تذاكر مفتوحة لكل عضو" value={draft.tickets.maxOpenPerUser} min={1} max={5} onChange={(value) => updateSection("tickets", { maxOpenPerUser: value })} />
           <TextField label="عنوان اللوحة" value={draft.tickets.panelTitle} maxLength={100} onChange={(value) => updateSection("tickets", { panelTitle: value })} />
           <TextField label="وصف اللوحة" value={draft.tickets.panelDescription} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { panelDescription: value })} />
           <TextField label="رسالة فتح التذكرة — يدعم {user}" value={draft.tickets.openMessage} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { openMessage: value })} />
-          <p className="pc-hint">أنواع الطلب الحالية: {draft.tickets.topics.map((topic) => topic.label).join(" · ") || "لا توجد أنواع بعد"}. تعديل الأنواع ونشر اللوحة من Discord غير متاحين في هذه الواجهة بعد.</p>
+          <p className="pc-hint">أنواع الطلب الحالية: {draft.tickets.topics.map((topic) => topic.label).join(" · ") || "لا توجد أنواع بعد"}. بعد الحفظ استخدم <bdi dir="ltr">/ticket panel</bdi> في Discord لنشر أو تحديث اللوحة. لا يتم حفظ نصوص المحادثات في هذه النسخة، لذلك لا توجد «قناة نصوص محفوظة» شكلية.</p>
         </article>
 
         <article className="pc-card">

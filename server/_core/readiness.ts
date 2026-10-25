@@ -9,9 +9,8 @@ export type ReadinessResult = {
 };
 
 export function shouldStartProductionGateway(env: NodeJS.ProcessEnv, readinessReady: boolean): boolean {
-  return env.NODE_ENV !== "production"
-    || env.SYSTEMIX_ENABLE_PRODUCTION_GATEWAY !== "true"
-    || readinessReady;
+  if (env.NODE_ENV !== "production") return true;
+  return env.SYSTEMIX_ENABLE_PRODUCTION_GATEWAY === "true" && readinessReady;
 }
 
 export async function getReadiness(env: NodeJS.ProcessEnv = process.env): Promise<ReadinessResult> {

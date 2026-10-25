@@ -10,6 +10,10 @@ export function getMigrationStatus(): { state: MigrationState; mode: "automatic"
   return { state: migrationState, mode: autoMigrationRequested ? "automatic" : "external" };
 }
 
+function failClosedInProduction(env: NodeJS.ProcessEnv): void {
+  if (env.NODE_ENV === "production") throw new Error(`systemix_migrations_${migrationState}`);
+}
+
 // Explicitly invoked by production startup only; importing this module never writes to DB.
 export async function runStartupMigrations(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   autoMigrationRequested = env.SYSTEMIX_AUTO_MIGRATE === "true";
@@ -21,6 +25,7 @@ export async function runStartupMigrations(env: NodeJS.ProcessEnv = process.env)
   if (!env.DATABASE_URL?.trim()) {
     migrationState = "missing_database";
     console.warn("[Systemix] Database migrations skipped: DATABASE_URL is missing");
+    failClosedInProduction(env);
     return;
   }
   let db;
@@ -29,11 +34,13 @@ export async function runStartupMigrations(env: NodeJS.ProcessEnv = process.env)
   } catch {
     migrationState = "connection_failed";
     console.error("[Systemix] Database migrations skipped: database connection unavailable");
+    failClosedInProduction(env);
     return;
   }
   if (!db) {
     migrationState = "connection_failed";
     console.error("[Systemix] Database migrations skipped: database connection unavailable");
+    failClosedInProduction(env);
     return;
   }
   try {
@@ -56,5 +63,6 @@ export async function runStartupMigrations(env: NodeJS.ProcessEnv = process.env)
       errno: typeof errorFields.errno === "number" ? errorFields.errno : typeof causeFields.errno === "number" ? causeFields.errno : undefined,
       sqlState: safeCode(errorFields.sqlState) ?? safeCode(causeFields.sqlState),
     });
+    failClosedInProduction(env);
   }
 }

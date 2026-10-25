@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, CheckCircle2, Clock3, LoaderCircle, LockKeyhole, RefreshCw, Save, Settings2, ShieldAlert } from "lucide-react";
 import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/discord/config";
 import type { GuildMeta } from "../../../shared/systemix-api";
@@ -28,11 +28,18 @@ export default function SystemSettingsConsole({ guildId, guildName }: Props) {
   const [problem, setProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const activeGuildId = useRef(guildId);
 
   useEffect(() => {
     let active = true;
+    activeGuildId.current = guildId;
     setLoading(true);
     setProblem("");
+    setNotice("");
+    setConfirmOpen(false);
+    setSnapshot(null);
+    setDraft(null);
+    setMeta(null);
     Promise.all([discordApi.loadGuildSettings(guildId), discordApi.loadGuildMeta(guildId).catch(() => null)])
       .then(([settings, guildMeta]) => {
         if (!active) return;
@@ -54,6 +61,7 @@ export default function SystemSettingsConsole({ guildId, guildName }: Props) {
 
   const save = async () => {
     if (!draft) return;
+    const saveGuildId = guildId;
     setSaving(true);
     setProblem("");
     setNotice("");
@@ -64,6 +72,7 @@ export default function SystemSettingsConsole({ guildId, guildName }: Props) {
         antiNuke: draft.antiNuke,
       };
       const result = await discordApi.saveGuildSettings(guildId, patch, draft.mode === "protect" ? "ENABLE_PROTECTION" : "CONFIRM_SETTINGS");
+      if (activeGuildId.current !== saveGuildId) return;
       setSnapshot((current) => current ? { ...current, settings: result.settings } : current);
       setDraft(result.settings);
       setConfirmOpen(false);

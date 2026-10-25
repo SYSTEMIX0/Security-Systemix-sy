@@ -140,7 +140,12 @@ async function readJson<T>(path: string, init?: RequestInit, acceptedStatusCodes
   } catch {
     throw new DiscordApiError(0, "network_unavailable");
   }
-  const payload = await response.json().catch(() => ({})) as { error?: unknown };
+  let payload: { error?: unknown };
+  try {
+    payload = await response.json() as { error?: unknown };
+  } catch {
+    throw new DiscordApiError(response.status, "invalid_response");
+  }
   if (!response.ok && !acceptedStatusCodes.includes(response.status)) {
     const code = typeof payload.error === "string" ? payload.error : "request_failed";
     throw new DiscordApiError(response.status, code);

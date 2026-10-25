@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, Save, ShieldCheck } from "lucide-react";
 import type { GuildSecurityConfig, GuildSecurityPatch } from "../../../server/discord/config";
 import type { GuildMeta } from "../../../shared/systemix-api";
@@ -34,15 +34,24 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
   const [draft, setDraft] = useState<GuildSecurityConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishingAutoMod, setPublishingAutoMod] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [problem, setProblem] = useState("");
   const [notice, setNotice] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const activeGuildId = useRef(guildId);
 
   useEffect(() => {
     let active = true;
+    activeGuildId.current = guildId;
     setLoading(true);
     setProblem("");
+    setNotice("");
+    setConfirmOpen(false);
+    // Never leave editable data from the previous guild on screen while a new guild loads.
+    setSnapshot(null);
+    setDraft(null);
+    setMeta(null);
     Promise.all([discordApi.loadGuildSettings(guildId), discordApi.loadGuildMeta(guildId).catch(() => null)])
       .then(([settings, guildMeta]) => {
         if (!active) return;
@@ -68,6 +77,7 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
 
   const save = async () => {
     if (!draft || !snapshot) return;
+    const saveGuildId = guildId;
     setSaving(true);
     setProblem("");
     setNotice("");
@@ -84,6 +94,7 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
         verification: draft.verification,
       };
       const result = await discordApi.saveGuildSettings(guildId, patch, confirmation);
+      if (activeGuildId.current !== saveGuildId) return;
       setSnapshot((current) => current ? { ...current, settings: result.settings } : current);
       setDraft(result.settings);
       setNotice("حُفظت التغييرات بعد تسجيل إجراء الحفظ مسبقاً في سجل التدقيق.");
@@ -93,6 +104,23 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
       setConfirmOpen(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const publishAutoMod = async () => {
+    const publishGuildId = guildId;
+    setPublishingAutoMod(true);
+    setProblem("");
+    setNotice("");
+    try {
+      const result = await discordApi.applyAutoMod(publishGuildId);
+      if (activeGuildId.current !== publishGuildId) return;
+      const changed = result.changes.filter((change) => change.action === "created" || change.action === "updated").length;
+      setNotice(changed ? `تم نشر أو تحديث ${changed} من قواعد AutoMod في Discord.` : "قواعد AutoMod المنشورة مطابقة لإعداداتك الحالية.");
+    } catch (error) {
+      if (activeGuildId.current === publishGuildId) setProblem(errorMessage(error));
+    } finally {
+      if (activeGuildId.current === publishGuildId) setPublishingAutoMod(false);
     }
   };
 
@@ -130,7 +158,12 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
 
       <div className="pc-mode-card">
         <div><span className="pc-eyebrow">نمط التشغيل</span><strong>{draft.mode === "observe" ? "مراقبة آمنة" : "حماية فعّالة"}</strong><small>{draft.mode === "observe" ? "يرصد ويُسجّل دون تنفيذ عقوبات تلقائية." : "قد تنفّذ الوحدات إجراءات حسب إعداداتها وصلاحيات Discord."}</small></div>
-        <select aria-label="نمط الحماية" value={draft.mode} onChange={(event) => setDraft((current) => current ? { ...current, mode: event.currentTarget.value as GuildSecurityConfig["mode"] } : current)}>
+        <select aria-label="نمط الحماية" value={draft.mode} onChange={(event) => {
+          // React may clear currentTarget before a functional state updater executes.
+          // Capture the primitive while the event is still active so the dashboard cannot crash.
+          const mode = event.currentTarget.value as GuildSecurityConfig["mode"];
+          setDraft((current) => current ? { ...current, mode } : current);
+        }}>
           <option value="observe">مراقبة فقط — افتراضي وآمن</option>
           <option value="protect">حماية فعّالة — تتطلب تأكيداً</option>
         </select>
@@ -171,6 +204,10 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
           <SwitchRow label="حظر إغراق المنشنات" checked={draft.autoMod.blockMentionSpam} onChange={(checked) => updateSection("autoMod", { blockMentionSpam: checked })} />
           <SwitchRow label="حظر الروابط" checked={draft.autoMod.blockLinks} onChange={(checked) => updateSection("autoMod", { blockLinks: checked })} />
           <SwitchRow label="رصد تكرار المحتوى" checked={draft.autoMod.blockSpamContent} onChange={(checked) => updateSection("autoMod", { blockSpamContent: checked })} />
+          <p className="pc-hint">حفظ الإعدادات لا ينشر قواعد Discord الأصلية تلقائياً. بعد الحفظ انشرها صراحةً من الزر التالي.</p>
+          <button className="pc-button pc-button-secondary" onClick={() => void publishAutoMod()} disabled={saving || publishingAutoMod || loading || !snapshot.botInstalled || !snapshot.botOnline}>
+            {publishingAutoMod ? <><LoaderCircle className="pc-spin" size={16} /> جارٍ نشر القواعد</> : "نشر قواعد AutoMod في Discord"}
+          </button>
         </article>
 
         <article className="pc-card">
