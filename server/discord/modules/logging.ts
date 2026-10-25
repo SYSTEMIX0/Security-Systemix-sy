@@ -1,12 +1,47 @@
-import { type AuditLogEvent, type Guild, type GuildAuditLogsEntry, type GuildMember, type Message, type PartialMessage, type PartialGuildMember, type VoiceState } from "discord.js";
-import type { GuildSecurityConfig } from "../config";
+import {
+  ChannelType,
+  MessageFlags,
+  PermissionFlagsBits,
+  SlashCommandBuilder,
+  type AuditLogEvent,
+  type Guild,
+  type GuildAuditLogsEntry,
+  type GuildMember,
+  type Message,
+  type PartialGuildMember,
+  type PartialMessage,
+  type TextChannel,
+  type VoiceState,
+} from "discord.js";
+import { mergeGuildSecurityConfig, type GuildSecurityConfig } from "../config";
 import { getGuildConfig, recordEvent, sendSecurityAlert, systemixEmbed } from "../core/context";
 import type { SystemixModule } from "../core/types";
 import { monitoredAuditActionNames } from "../security";
+import { recordSecurityEvent, upsertGuildSecuritySettings } from "../../db";
 
 type LogSwitch = "memberJoinLeave" | "messageDelete" | "messageEdit" | "memberRoles" | "nicknames" | "channelChanges" | "roleChanges" | "voice" | "moderation";
+
+/** Four private Discord channels created by `/logs setup`. */
+export const SYSTEMIX_LOG_CHANNELS = {
+  member: "👥・member-logs",
+  message: "💬・message-logs",
+  security: "🛡️・security-logs",
+  voice: "🔊・voice-logs",
+} as const;
+
+const LOG_CATEGORY_NAME = "📋・systemix-logs";
+
 export function loggingEnabled(config: GuildSecurityConfig, feature: LogSwitch, channelId?: string | null): boolean {
   return config.logging.enabled && config.logging[feature] && !(channelId && config.logging.ignoredChannelIds.includes(channelId));
+}
+
+/** Dedicated routes are optional, preserving the single-channel fallback for existing servers. */
+export function loggingDestination(config: GuildSecurityConfig, feature: LogSwitch): string | null {
+  const specialised = feature === "memberJoinLeave" ? config.logging.memberChannelId
+    : feature === "messageDelete" || feature === "messageEdit" ? config.logging.messageChannelId
+      : feature === "voice" ? config.logging.voiceChannelId
+        : config.logging.securityChannelId;
+  return specialised ?? config.logging.channelId ?? config.general.securityLogChannelId;
 }
 
 async function writeLog(guild: Guild, config: GuildSecurityConfig, input: {
@@ -21,12 +56,134 @@ async function writeLog(guild: Guild, config: GuildSecurityConfig, input: {
     actorId: input.actorId ?? null, targetId: input.targetId ?? null,
     severity: input.severity ?? "low", details: input.details,
   });
-  if (config.logging.channelId) {
-    await sendSecurityAlert(guild, config, config.logging.channelId, {
+  const destination = loggingDestination(config, input.feature);
+  if (destination) {
+    await sendSecurityAlert(guild, config, destination, {
       embeds: [systemixEmbed({ title: input.title, tone: input.severity === "high" ? "danger" : input.severity === "medium" ? "warning" : "info", fields: input.fields, config })],
       allowedMentions: { parse: [] },
     });
   }
+}
+
+const command = new SlashCommandBuilder().setName("logs").setDescription("إعداد قنوات سجل Systemix")
+  .addSubcommand((subcommand) => subcommand.setName("setup").setDescription("إنشاء وربط قنوات اللوقات تلقائياً"));
+
+type LogCommandInteraction = Parameters<NonNullable<SystemixModule["onCommand"]>>[0];
+
+async function respond(interaction: LogCommandInteraction, content: string): Promise<void> {
+  try {
+    if (interaction.deferred) await interaction.editReply({ content, allowedMentions: { parse: [] } });
+    else await interaction.reply({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+  } catch {
+    // Avoid leaking a Discord interaction error after the requested setup was already audited.
+  }
+}
+
+function findLogCategory(guild: Guild) {
+  return guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === LOG_CATEGORY_NAME) ?? null;
+}
+
+function findLogChannel(guild: Guild, categoryId: string, name: string): TextChannel | null {
+  return (guild.channels.cache.find((channel) => channel.type === ChannelType.GuildText && channel.parentId === categoryId && channel.name === name) ?? null) as TextChannel | null;
+}
+
+async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
+  if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const member = interaction.member as GuildMember;
+  if (member.id !== interaction.guild.ownerId && !member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو من يملك صلاحية Manage Server.");
+  }
+  const me = interaction.guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /logs setup.");
+  }
+  try {
+    // The audit precondition is intentionally completed before creating any channels.
+    await recordSecurityEvent({
+      guildId: interaction.guildId,
+      eventType: "logging:setup_precondition",
+      actorId: member.id,
+      severity: "medium",
+      details: { requested: "four_private_log_channels" },
+    });
+  } catch {
+    return respond(interaction, "تعذر توثيق إعداد اللوقات في سجل التدقيق؛ لم يتم إنشاء أي قناة.");
+  }
+
+  const createdChannels: TextChannel[] = [];
+  let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
+  try {
+    let category = findLogCategory(interaction.guild);
+    const managerRoleIds = [...interaction.guild.roles.cache.values()]
+      .filter((role) => !role.managed && (role.permissions.has(PermissionFlagsBits.Administrator) || role.permissions.has(PermissionFlagsBits.ManageGuild)))
+      .slice(0, 20)
+      .map((role) => role.id);
+    if (!category) {
+      category = await interaction.guild.channels.create({
+        name: LOG_CATEGORY_NAME,
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          ...managerRoleIds.map((id) => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
+        ],
+        reason: "Security Systemix log setup",
+      });
+      createdCategory = category;
+    }
+
+    const channels = {} as Record<keyof typeof SYSTEMIX_LOG_CHANNELS, TextChannel>;
+    for (const [key, name] of Object.entries(SYSTEMIX_LOG_CHANNELS) as Array<[keyof typeof SYSTEMIX_LOG_CHANNELS, string]>) {
+      let channel = findLogChannel(interaction.guild, category.id, name);
+      if (!channel) {
+        channel = await interaction.guild.channels.create({ name, type: ChannelType.GuildText, parent: category.id, reason: "Security Systemix log channel" }) as TextChannel;
+        createdChannels.push(channel);
+      }
+      channels[key] = channel;
+    }
+
+    const current = await getGuildConfig(interaction.guildId);
+    const next = mergeGuildSecurityConfig(current, {
+      general: { modLogChannelId: channels.security.id, securityLogChannelId: channels.security.id },
+      logging: {
+        enabled: true,
+        channelId: channels.security.id,
+        memberChannelId: channels.member.id,
+        messageChannelId: channels.message.id,
+        securityChannelId: channels.security.id,
+        voiceChannelId: channels.voice.id,
+        memberJoinLeave: true,
+        messageDelete: true,
+        messageEdit: true,
+        memberRoles: true,
+        nicknames: true,
+        channelChanges: true,
+        roleChanges: true,
+        voice: true,
+        moderation: true,
+        ignoredChannelIds: Object.values(channels).map((channel) => channel.id),
+      },
+    });
+    await upsertGuildSecuritySettings(interaction.guildId, member.id, next);
+    await channels.security.send({
+      embeds: [systemixEmbed({
+        title: "تم تشغيل اللوقات",
+        description: "تم ربط قنوات العضوية والرسائل والحماية والصوت. هذه القنوات للقراءة فقط وتبدأ بإظهار الأحداث الجديدة.",
+        tone: "success",
+        config: next,
+      })],
+      allowedMentions: { parse: [] },
+    }).catch(() => undefined);
+    return respond(interaction, "تم إنشاء وربط 4 قنوات لوق خاصة: أعضاء، رسائل، حماية، وصوت.");
+  } catch {
+    await Promise.allSettled(createdChannels.map((channel) => channel.delete("Rolling back incomplete Systemix log setup")));
+    if (createdCategory) await createdCategory.delete("Rolling back incomplete Systemix log setup").catch(() => undefined);
+    return respond(interaction, "لم يكتمل إعداد اللوقات. راجع صلاحيات Manage Channels وSend Messages ثم أعد /logs setup؛ نُظفت القنوات الجديدة إن أمكن.");
+  }
+}
+
+async function handleCommand(interaction: LogCommandInteraction): Promise<void> {
+  if (interaction.options.getSubcommand() === "setup") await setupLogs(interaction);
 }
 
 async function onMemberAdd(member: GuildMember): Promise<void> {
@@ -137,6 +294,8 @@ async function onVoiceState(before: VoiceState, after: VoiceState): Promise<void
 export const loggingModule: SystemixModule = {
   name: "logging",
   implemented: true,
+  commands: [command.toJSON()],
+  onCommand: handleCommand,
   onMemberAdd,
   onMemberRemove,
   onMessageDelete,

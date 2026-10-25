@@ -139,7 +139,12 @@ const moderationSchema = z.object({
 
 const loggingSchema = z.object({
   enabled: z.boolean(),
+  /** Fallback for older configurations or any event without a specialised route. */
   channelId: nid,
+  memberChannelId: nid,
+  messageChannelId: nid,
+  securityChannelId: nid,
+  voiceChannelId: nid,
   memberJoinLeave: z.boolean(),
   messageDelete: z.boolean(),
   messageEdit: z.boolean(),
@@ -418,6 +423,10 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
   logging: {
     enabled: false,
     channelId: null,
+    memberChannelId: null,
+    messageChannelId: null,
+    securityChannelId: null,
+    voiceChannelId: null,
     memberJoinLeave: true,
     messageDelete: true,
     messageEdit: true,

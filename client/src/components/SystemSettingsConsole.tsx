@@ -111,11 +111,17 @@ export default function SystemSettingsConsole({ guildId, guildName }: Props) {
       <div className="pc-grid">
         <article className="pc-card">
           <div className="pc-card-title"><div><span className="pc-icon pc-icon-green"><Bell size={16} /></span><div><h2>سجل الأحداث والتنبيهات</h2><p>إعدادات حقيقية لوحدة تسجيل أحداث Discord.</p></div></div><SwitchRow label="تفعيل سجل الأحداث" checked={draft.logging.enabled} onChange={(value) => updateSection("logging", { enabled: value })} /></div>
-          <ChannelSelect label="قناة السجل والتنبيهات" value={draft.logging.channelId} channels={channels} onChange={(value) => updateSection("logging", { channelId: value })} />
+          <ChannelSelect label="قناة احتياطية للسجل" value={draft.logging.channelId} channels={channels} onChange={(value) => updateSection("logging", { channelId: value })} />
+          <div className="pc-fields">
+            <ChannelSelect label="لوق الأعضاء" value={draft.logging.memberChannelId} channels={channels} onChange={(value) => updateSection("logging", { memberChannelId: value })} />
+            <ChannelSelect label="لوق الرسائل" value={draft.logging.messageChannelId} channels={channels} onChange={(value) => updateSection("logging", { messageChannelId: value })} />
+            <ChannelSelect label="لوق الحماية والإدارة" value={draft.logging.securityChannelId} channels={channels} onChange={(value) => updateSection("logging", { securityChannelId: value })} />
+            <ChannelSelect label="لوق الصوت" value={draft.logging.voiceChannelId} channels={channels} onChange={(value) => updateSection("logging", { voiceChannelId: value })} />
+          </div>
           <SwitchRow label="دخول ومغادرة الأعضاء" checked={draft.logging.memberJoinLeave} onChange={(value) => updateSection("logging", { memberJoinLeave: value })} />
           <SwitchRow label="تغييرات القنوات والرتب" checked={draft.logging.channelChanges && draft.logging.roleChanges} onChange={(value) => updateSection("logging", { channelChanges: value, roleChanges: value })} />
           <SwitchRow label="إجراءات الإشراف" checked={draft.logging.moderation} onChange={(value) => updateSection("logging", { moderation: value })} />
-          <p className="pc-hint">إذا لم تحدد قناة، تبقى الأحداث في سجل Systemix فقط ولا يرسل البوت رسالة إلى Discord.</p>
+          <p className="pc-hint">استخدم <bdi dir="ltr">/logs setup</bdi> في Discord ليُنشئ البوت 4 قنوات خاصة ويربطها تلقائياً. القناة الاحتياطية تستخدم فقط إذا لم تحدد قناة لنوع الحدث.</p>
         </article>
 
         <article className="pc-card">
