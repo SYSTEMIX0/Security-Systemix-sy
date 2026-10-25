@@ -105,7 +105,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
 
       {problem && <div className="pc-message pc-message-error" role="alert"><AlertTriangle size={18} /> {problem}</div>}
       {notice && <div className="pc-message pc-message-success" role="status"><CheckCircle2 size={18} /> {notice}</div>}
-      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> هذه الصفحة تحفظ إعدادات الوحدات. إرسال لوحات التذاكر وتشغيل المسابقات/الفعاليات من Discord ما يزال يحتاج استكمال واجهات الإجراء؛ لا تُعرض هذه الإجراءات هنا كأنها نُفّذت.</div>
+      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> لإعداد التذاكر من دون اختيار القنوات يدوياً: اكتب <bdi dir="ltr">/ticket setup</bdi> في Discord واختر رتبة الدعم. ينشئ البوت 3 قنوات لوحات ثابتة وقناة خاصة للتذاكر المفتوحة. لا تتضمن هذه النسخة حفظ نصوص المحادثات أو Transcript.</div>
 
       <div className="pc-grid">
         <article className="pc-card">
@@ -117,7 +117,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
           <TextField label="عنوان اللوحة" value={draft.tickets.panelTitle} maxLength={100} onChange={(value) => updateSection("tickets", { panelTitle: value })} />
           <TextField label="وصف اللوحة" value={draft.tickets.panelDescription} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { panelDescription: value })} />
           <TextField label="رسالة فتح التذكرة — يدعم {user}" value={draft.tickets.openMessage} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { openMessage: value })} />
-          <p className="pc-hint">أنواع الطلب الحالية: {draft.tickets.topics.map((topic) => topic.label).join(" · ") || "لا توجد أنواع بعد"}. بعد الحفظ استخدم <bdi dir="ltr">/ticket panel</bdi> في Discord لنشر أو تحديث اللوحة. لا يتم حفظ نصوص المحادثات في هذه النسخة، لذلك لا توجد «قناة نصوص محفوظة» شكلية.</p>
+          <p className="pc-hint">الأنواع القياسية: فتح تذكرة · تذكرة وسيط · تذكرة رفع مستوى. نفّذ <bdi dir="ltr">/ticket setup</bdi> مرة واحدة كمالك السيرفر أو بصلاحية Manage Server؛ ينشئ البوت قنوات <bdi dir="ltr">🎫・open-ticket</bdi> و<bdi dir="ltr">🤝・middleman-ticket</bdi> و<bdi dir="ltr">📈・levelup-ticket</bdi> ويرسل في كل قناة زر فتح خاصاً بها. استخدم <bdi dir="ltr">/ticket panel</bdi> لتحديث الرسائل لاحقاً.</p>
         </article>
 
         <article className="pc-card">

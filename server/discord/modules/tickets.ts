@@ -7,11 +7,12 @@ import {
   MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
-  StringSelectMenuBuilder,
   type GuildMember,
+  type Message,
+  type TextChannel,
 } from "discord.js";
 import type { ComponentInteraction, SystemixModule } from "../core/types";
-import { mergeGuildSecurityConfig } from "../config";
+import { defaultGuildSecurityConfig, mergeGuildSecurityConfig } from "../config";
 import { customId } from "../core/types";
 import { getGuildConfig, isStaffMember, logSafe } from "../core/context";
 import { recordSecurityEvent, upsertGuildSecuritySettings } from "../../db";
@@ -39,6 +40,21 @@ export function ticketChannelPrefix(topicId: string): string {
     "levelup-ticket": "levelup-ticket",
   };
   return names[topicId] ?? cleanTicketChannelName(`ticket-${topicId}`);
+}
+
+/** The public, read-only channels that carry the three separate ticket panels. */
+export const TICKET_PANEL_CHANNELS: Record<string, string> = {
+  "open-ticket": "🎫・open-ticket",
+  "middleman-ticket": "🤝・middleman-ticket",
+  "levelup-ticket": "📈・levelup-ticket",
+};
+
+const PANEL_CATEGORY_NAME = "🎫・ticket-panels";
+const LEGACY_PANEL_CATEGORY_NAME = "🎫・systemix-tickets";
+const ACTIVE_TICKETS_CATEGORY_NAME = "🔒・active-tickets";
+
+export function ticketPanelChannelName(topicId: string): string {
+  return TICKET_PANEL_CHANNELS[topicId] ?? `🎫・${ticketChannelPrefix(topicId)}`;
 }
 
 export function canManageTicket(actorId: string, openerId: string, staff: boolean): boolean {
@@ -78,21 +94,65 @@ const command = new SlashCommandBuilder().setName("ticket").setDescription("إد
   .addSubcommand((sub) => sub.setName("setup").setDescription("إعداد نظام التذاكر وإنشاء لوحته تلقائياً")
     .addRoleOption((option) => option.setName("support-role").setDescription("رتبة فريق الدعم التي ترى التذاكر").setRequired(true)));
 
-function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"]) {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(customId("tickets", "open"))
-    .setPlaceholder("اختر نوع تذكرتك")
-    .addOptions(cfg.topics.map((topic) => ({
-      label: topic.label,
-      value: topic.id,
-      description: topic.description || undefined,
-      emoji: topic.emoji || undefined,
-    })));
+function ticketPanel(cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"], topic: Awaited<ReturnType<typeof getGuildConfig>>["tickets"]["topics"][number]) {
+  const button = new ButtonBuilder()
+    .setCustomId(customId("tickets", "open", topic.id))
+    .setLabel(`فتح ${topic.label}`.slice(0, 80))
+    .setStyle(ButtonStyle.Primary);
+  if (topic.emoji) button.setEmoji(topic.emoji);
   return {
-    embeds: [new EmbedBuilder().setTitle(cfg.panelTitle).setDescription(cfg.panelDescription)],
-    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)],
+    embeds: [new EmbedBuilder()
+      .setTitle(`${topic.emoji ? `${topic.emoji} ` : ""}${topic.label}`)
+      .setDescription([cfg.panelDescription, topic.description].filter(Boolean).join("\n\n"))],
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(button)],
     allowedMentions: { parse: [] as [] },
   };
+}
+
+function findPanelCategory(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"]) {
+  return guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory
+    && (channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME)) ?? null;
+}
+
+function findTextChannel(guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"], categoryId: string, name: string): TextChannel | null {
+  const channel = guild.channels.cache.find((candidate) => candidate.parentId === categoryId
+    && candidate.type === ChannelType.GuildText
+    && candidate.name === name) ?? null;
+  return channel as TextChannel | null;
+}
+
+function containsTicketTrigger(message: Pick<Message<true>, "components">): boolean {
+  return message.components.some((row) => "components" in row
+    && Array.isArray(row.components)
+    && row.components.some((component) => "customId" in component
+      && typeof component.customId === "string"
+      && component.customId.startsWith(customId("tickets", "open"))));
+}
+
+async function publishTopicPanel(
+  channel: TextChannel,
+  payload: ReturnType<typeof ticketPanel>,
+  botUserId: string,
+): Promise<void> {
+  // Missing Read Message History must not prevent a permitted bot from sending a fresh panel.
+  const existing = await channel.messages.fetch({ limit: 50 })
+    .then((messages) => messages.find((message) => message.author.id === botUserId && containsTicketTrigger(message)))
+    .catch(() => undefined);
+  if (existing) await existing.edit(payload);
+  else await channel.send(payload);
+}
+
+async function publishTicketPanels(
+  guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"],
+  cfg: Awaited<ReturnType<typeof getGuildConfig>>["tickets"],
+  panelCategoryId: string,
+  botUserId: string,
+): Promise<void> {
+  for (const topic of cfg.topics) {
+    const channel = findTextChannel(guild, panelCategoryId, ticketPanelChannelName(topic.id));
+    if (!channel) throw new Error(`ticket_panel_channel_missing:${topic.id}`);
+    await publishTopicPanel(channel, ticketPanel(cfg, topic), botUserId);
+  }
 }
 
 async function handleCommand(interaction: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]) {
@@ -104,27 +164,16 @@ async function handleCommand(interaction: Parameters<NonNullable<SystemixModule[
   if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
   if (!isStaffMember(interaction.member as GuildMember, config)) return respond(interaction, "هذا الأمر مخصص لفريق الدعم.");
   if (subcommand !== "panel") return respond(interaction, "الأمر غير متاح.");
-  const channel = cfg.panelChannelId ? interaction.guild.channels.cache.get(cfg.panelChannelId) : null;
-  if (!channel?.isTextBased() || !("send" in channel)) return respond(interaction, "قناة لوحة التذاكر غير متاحة.");
+  const category = findPanelCategory(interaction.guild);
+  if (!category) return respond(interaction, "لا توجد قنوات لوحات التذاكر بعد. استخدم /ticket setup أولاً.");
   if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
 
   try {
-    const payload = ticketPanel(cfg);
-    const recent = await channel.messages.fetch({ limit: 25 });
-    const panelId = customId("tickets", "open");
-    const existing = recent.find((message) => message.author.id === interaction.client.user.id
-      && message.components.some((row) => "components" in row
-        && Array.isArray(row.components)
-        && row.components.some((component) => "customId" in component && component.customId === panelId)));
-    if (existing) {
-      await existing.edit(payload);
-      return respond(interaction, "تم تحديث لوحة التذاكر الموجودة في القناة.");
-    }
-    await channel.send(payload);
-    return respond(interaction, "تم نشر لوحة التذاكر.");
+    await publishTicketPanels(interaction.guild, cfg, category.id, interaction.client.user.id);
+    return respond(interaction, "تم تحديث لوحات فتح التذكرة والوسيط ورفع المستوى.");
   } catch (error) {
     logSafe(`Ticket panel publish failed in guild ${interaction.guildId}`, error);
-    return respond(interaction, "تعذر نشر لوحة التذاكر. تأكد من صلاحية إرسال الرسائل والروابط.");
+    return respond(interaction, "تعذر نشر إحدى لوحات التذاكر. تأكد أن البوت يملك View Channel وSend Messages ثم أعد /ticket setup.");
   }
 }
 
@@ -154,31 +203,66 @@ async function setupTicketSystem(
     return respond(interaction, "تعذر توثيق عملية الإعداد في سجل التدقيق؛ لم يتم إنشاء أي قناة.");
   }
 
-  let createdCategory = false;
-  let createdPanel = false;
-  let category = interaction.guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === "🎫・systemix-tickets") ?? null;
-  let panel = category
-    ? interaction.guild.channels.cache.find((channel) => channel.parentId === category!.id && channel.type === ChannelType.GuildText && channel.name === "🎫・open-ticket") ?? null
-    : null;
+  const me = interaction.guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels) || !me.permissions.has(PermissionFlagsBits.SendMessages)) {
+    return respond(interaction, "لا يملك البوت حالياً Manage Channels وSend Messages. أعطه هاتين الصلاحيتين ثم أعد /ticket setup.");
+  }
+
+  const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
+  const createdPanels: TextChannel[] = [];
+  let panelCategory = findPanelCategory(interaction.guild);
+  let activeCategory = interaction.guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory && channel.name === ACTIVE_TICKETS_CATEGORY_NAME) ?? null;
   try {
-    if (!category) {
-      category = await interaction.guild.channels.create({ name: "🎫・systemix-tickets", type: ChannelType.GuildCategory, reason: "Security Systemix ticket setup" });
-      createdCategory = true;
+    if (!panelCategory) {
+      panelCategory = await interaction.guild.channels.create({ name: PANEL_CATEGORY_NAME, type: ChannelType.GuildCategory, reason: "Security Systemix ticket panel setup" });
+      createdCategories.push(panelCategory);
     }
-    if (!panel) {
-      panel = await interaction.guild.channels.create({ name: "🎫・open-ticket", type: ChannelType.GuildText, parent: category.id, reason: "Security Systemix ticket panel" });
-      createdPanel = true;
+    if (!activeCategory) {
+      activeCategory = await interaction.guild.channels.create({
+        name: ACTIVE_TICKETS_CATEGORY_NAME,
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: supportRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        ],
+        reason: "Security Systemix private ticket category",
+      });
+      createdCategories.push(activeCategory);
     }
+
+    const panels: TextChannel[] = [];
+    const setupTopics = defaultGuildSecurityConfig.tickets.topics;
+    for (const topic of setupTopics) {
+      let panel = findTextChannel(interaction.guild, panelCategory.id, ticketPanelChannelName(topic.id));
+      if (!panel) {
+        panel = await interaction.guild.channels.create({
+          name: ticketPanelChannelName(topic.id),
+          type: ChannelType.GuildText,
+          parent: panelCategory.id,
+          permissionOverwrites: [
+            { id: interaction.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
+            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          ],
+          reason: "Security Systemix ticket panel",
+        }) as TextChannel;
+        createdPanels.push(panel);
+      }
+      panels.push(panel);
+    }
+
     const next = mergeGuildSecurityConfig(config, {
-      tickets: { enabled: true, categoryId: category.id, panelChannelId: panel.id, staffRoleIds: [supportRole.id] },
+      tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: panels[0]?.id ?? null, staffRoleIds: [supportRole.id], topics: setupTopics },
     });
+    // Panels are prepared before settings become active, so a database failure never leaves live controls behind.
+    for (let index = 0; index < panels.length; index += 1) {
+      await publishTopicPanel(panels[index]!, ticketPanel(next.tickets, next.tickets.topics[index]!), interaction.client.user.id);
+    }
     await upsertGuildSecuritySettings(interaction.guildId, member.id, next);
-    if (!panel.isTextBased() || !("send" in panel)) throw new Error("ticket_panel_channel_not_text");
-    await panel.send(ticketPanel(next.tickets));
-    return respond(interaction, `تم إعداد التذاكر: ${category.name} و${panel.name}. اللوحة جاهزة الآن للأنواع الثلاثة.`);
+    return respond(interaction, "تم إعداد التذاكر. أُنشئت قنوات 🎫・open-ticket و🤝・middleman-ticket و📈・levelup-ticket، وكل قناة تحتوي زر فتح خاصاً بها.");
   } catch (error) {
-    if (createdPanel && panel) await panel.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined);
-    if (createdCategory && category) await category.delete("Rolling back incomplete Security Systemix ticket setup").catch(() => undefined);
+    await Promise.allSettled(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix ticket setup")));
+    await Promise.allSettled(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix ticket setup")));
     logSafe(`Ticket setup failed in guild ${interaction.guildId}`, error);
     return respond(interaction, "لم يكتمل إعداد التذاكر. راجع صلاحيات Manage Channels وSend Messages ثم أعد الأمر؛ نُظفت القنوات الجديدة إن أمكن.");
   }
@@ -194,8 +278,10 @@ async function onComponent(interaction: ComponentInteraction) {
   if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
   const member = interaction.member as GuildMember;
 
-  if (action === "open" && interaction.isStringSelectMenu()) {
-    const topic = cfg.topics.find((item) => item.id === interaction.values[0]);
+  if (action === "open") {
+    // Old select menus remain usable during the upgrade; new fixed channels use a direct button.
+    const topicId = interaction.isStringSelectMenu() ? interaction.values[0] : arg;
+    const topic = cfg.topics.find((item) => item.id === topicId);
     if (!topic || !cfg.categoryId) return respond(interaction, "موضوع أو تصنيف التذاكر غير صالح.");
     const category = guild.channels.cache.get(cfg.categoryId);
     const me = guild.members.me;
