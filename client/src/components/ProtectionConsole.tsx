@@ -21,6 +21,13 @@ function errorMessage(error: unknown): string {
   return "تعذّر تحميل إعدادات الحماية أو حفظها. تحقق من الاتصال ثم أعد المحاولة.";
 }
 
+function subscriptionStatusLabel(status: DiscordGuildSnapshot["subscription"]["status"]): string {
+  if (status === "active") return "اشتراك مفعل";
+  if (status === "suspended") return "اشتراك معلّق";
+  if (status === "expired") return "اشتراك منتهي";
+  return "لا يوجد اشتراك مفعل";
+}
+
 export default function ProtectionConsole({ guildId, guildName }: Props) {
   const [snapshot, setSnapshot] = useState<DiscordGuildSnapshot | null>(null);
   const [meta, setMeta] = useState<GuildMeta | null>(null);
@@ -112,9 +119,11 @@ export default function ProtectionConsole({ guildId, guildName }: Props) {
         <span className={snapshot.permissions.viewAuditLog ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.permissions.viewAuditLog ? "صلاحية سجل Discord متاحة" : "صلاحية View Audit Log غير متاحة"}</span>
         <span className={snapshot.memberIntentEnabled ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.memberIntentEnabled ? "بوابة الأعضاء مفعّلة" : "بوابة الأعضاء غير مفعّلة"}</span>
         <span className={snapshot.messageContentIntentEnabled ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {snapshot.messageContentIntentEnabled ? "محتوى الرسائل متاح" : "محتوى الرسائل غير متاح"}</span>
+        <span className={snapshot.subscription.status === "active" ? "pc-status pc-status-good" : "pc-status pc-status-warn"}><i /> {subscriptionStatusLabel(snapshot.subscription.status)}</span>
       </div>
 
       {!snapshot.botInstalled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> يمكن حفظ الإعدادات، لكن إجراءات البوت لن تعمل في هذا السيرفر حتى تثبيته وتشغيله.</div>}
+      {snapshot.subscription.status !== "active" && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> هذا السيرفر غير مفعّل تجارياً. يستمر البوت في الرصد والتسجيل، لكن العقوبات والإجراءات الأمنية التلقائية تُحصر في وضع المراقبة حتى يجدد المالك اشتراكه من لوحة الملاك.</div>}
       {!snapshot.permissions.viewAuditLog && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> بعض إشارات مكافحة العبث ستكون محدودة دون صلاحية قراءة سجل التدقيق في Discord.</div>}
       {!snapshot.memberIntentEnabled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> Anti-Raid يعتمد على Guild Members Intent. الإعداد المحفوظ لن يرصد دخول الأعضاء حتى تفعيله وإعادة تشغيل Gateway.</div>}
       {!snapshot.messageContentIntentEnabled && <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> لا يستطيع Gateway قراءة محتوى الرسائل حالياً؛ إعداد Anti-Spam الذي يعتمد على النص لن يعمل قبل تفعيل Message Content Intent.</div>}

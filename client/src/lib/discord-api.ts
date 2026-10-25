@@ -51,6 +51,21 @@ export type OwnerPanelOverview = {
   };
 };
 
+export type OwnerSubscription = {
+  guildId: string;
+  plan: "monthly" | "annual";
+  status: "active" | "suspended" | "expired";
+  startsAt: string;
+  endsAt: string;
+  note: string | null;
+  updatedByDiscordId: string;
+  updatedAt: string;
+};
+
+export type OwnerSubscriptionMutation =
+  | { action: "activate" | "renew"; guildId: string; plan: "monthly" | "annual"; note?: string; confirmation: "RENEW_SUBSCRIPTION" }
+  | { action: "suspend"; guildId: string; note?: string; confirmation: "SUSPEND_SUBSCRIPTION" };
+
 export type RuntimeReadiness = {
   ready: boolean;
   status: "ready" | "not_ready";
@@ -79,6 +94,11 @@ export function normalizeRuntimeReadiness(payload: RuntimeReadinessPayload): Run
 
 export type DiscordGuildSnapshot = {
   settings: GuildSecurityConfig;
+  subscription: {
+    status: "active" | "suspended" | "expired" | "not_provisioned";
+    plan: "monthly" | "annual" | null;
+    endsAt: string | null;
+  };
   botInstalled: boolean;
   botOnline: boolean;
   permissions: {
@@ -164,6 +184,7 @@ export const discordApi = {
   },
   loadOwnerStatus: () => readJson<OwnerPanelStatus>("/api/owner/status"),
   loadOwnerOverview: () => readJson<OwnerPanelOverview>("/api/owner/overview"),
+  loadOwnerSubscriptions: () => readJson<{ subscriptions: OwnerSubscription[] }>("/api/owner/subscriptions"),
   loadReadiness: async () => normalizeRuntimeReadiness(await readJson<RuntimeReadinessPayload>("/api/ready", undefined, [503])),
   async loginOwner(password: string) {
     return readJson<{ authenticated: true }>("/api/owner/login", {
@@ -177,6 +198,13 @@ export const discordApi = {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
       body: JSON.stringify({}),
+    });
+  },
+  async updateOwnerSubscription(input: OwnerSubscriptionMutation) {
+    return readJson<{ ok: true; subscription: OwnerSubscription }>("/api/owner/subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(await csrfHeader()) },
+      body: JSON.stringify(input),
     });
   },
 };

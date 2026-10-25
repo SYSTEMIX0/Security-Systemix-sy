@@ -124,11 +124,15 @@ export function registerCoreApi(app: Express): void {
 
   guildGet(app, "/settings", async ({ guild: summary }, _req, res) => {
     const settings = await loadGuildConfig(summary.id);
+    const subscription = await db.getGuildSubscription(summary.id);
     const botGuild = getDiscordClient()?.guilds.cache.get(summary.id);
     const me = botGuild?.members.me;
     const state = getDiscordBotState();
     res.json({
       settings,
+      subscription: subscription
+        ? { status: subscription.status, plan: subscription.plan, endsAt: subscription.endsAt }
+        : { status: "not_provisioned", plan: null, endsAt: null },
       botInstalled: Boolean(botGuild),
       botOnline: state.status === "ready",
       permissions: {

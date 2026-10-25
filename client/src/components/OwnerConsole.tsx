@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ArrowUpLeft,
   Bot,
+  CalendarClock,
   CheckCircle2,
   CircleHelp,
   Copy,
@@ -21,6 +22,8 @@ import {
   DiscordApiError,
   type OwnerPanelOverview,
   type OwnerPanelStatus,
+  type OwnerSubscription,
+  type DiscordGuildChoice,
   type RuntimeReadiness,
 } from "@/lib/discord-api";
 import type { DashboardSection } from "@/lib/systemix-demo";
@@ -28,6 +31,7 @@ import "./OwnerConsole.css";
 
 type Props = {
   discordUser: { id: string; username: string; avatar: string | null } | null;
+  manageableGuilds: DiscordGuildChoice[];
   oauthConfigured: boolean;
   onConnect: () => void;
   onNavigate: (section: DashboardSection) => void;
@@ -39,6 +43,11 @@ function failureText(error: unknown): string {
   if (error.code === "owner_auth_required") return "انتهت جلسة المالك. سجّل الدخول مرة أخرى.";
   if (error.code === "discord_login_required") return "اربط حساب Discord أولاً.";
   if (error.code === "csrf_validation_failed" || error.code === "origin_not_allowed") return "انتهت جلسة الحماية. حدّث الصفحة ثم أعد المحاولة.";
+  if (error.code === "owner_subscription_invalid") return "تحقق من معرف السيرفر والخطة. لا يمكن حفظ طلب غير صالح.";
+  if (error.code === "owner_subscription_not_found") return "لا يوجد اشتراك مسجل لهذا السيرفر لتعليقه.";
+  if (error.code === "owner_subscription_guild_unavailable") return "لا يمكن تفعيل هذا Guild ID الآن. تأكد أن البوت مثبت ومتصل بالسيرفر ثم حدّث الصفحة.";
+  if (error.code === "owner_subscription_write_blocked") return "تعذر تسجيل تدقيق التجديد، لذلك لم يتغير الاشتراك. أعد المحاولة بعد التحقق من حالة الخدمة.";
+  if (error.code === "owner_subscription_unavailable") return "تعذر قراءة الاشتراكات الآن. لم تُعرض أي بيانات بديلة.";
   if (error.status === 429) return "تجاوزت حد محاولات الدخول. انتظر قليلاً ثم أعد المحاولة.";
   return "تعذر إكمال الطلب. لم تُرسل أي إعدادات أو أسرار إلى المتصفح.";
 }
@@ -75,11 +84,27 @@ function ReadinessRow({ label, detail, ready }: { label: string; detail: string;
   );
 }
 
-export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, onNavigate }: Props) {
+function subscriptionLabel(subscription: OwnerSubscription): string {
+  if (subscription.status === "active") return "مفعل";
+  if (subscription.status === "suspended") return "معلّق";
+  return "منتهي";
+}
+
+function formatSubscriptionDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ar-SA", { year: "numeric", month: "short", day: "numeric" }).format(date);
+}
+
+export default function OwnerConsole({ discordUser, manageableGuilds, oauthConfigured, onConnect, onNavigate }: Props) {
   const [status, setStatus] = useState<OwnerPanelStatus | null>(null);
   const [overview, setOverview] = useState<OwnerPanelOverview | null>(null);
   const [readiness, setReadiness] = useState<RuntimeReadiness | null>(null);
+  const [subscriptions, setSubscriptions] = useState<OwnerSubscription[]>([]);
   const [password, setPassword] = useState("");
+  const [subscriptionGuildId, setSubscriptionGuildId] = useState("");
+  const [subscriptionPlan, setSubscriptionPlan] = useState<"monthly" | "annual">("monthly");
+  const [subscriptionNote, setSubscriptionNote] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -93,15 +118,18 @@ export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, 
       const nextStatus = await discordApi.loadOwnerStatus();
       setStatus(nextStatus);
       if (nextStatus.authenticated) {
-        const [nextOverview, nextReadiness] = await Promise.all([
+        const [nextOverview, nextReadiness, nextSubscriptions] = await Promise.all([
           discordApi.loadOwnerOverview(),
           discordApi.loadReadiness(),
+          discordApi.loadOwnerSubscriptions(),
         ]);
         setOverview(nextOverview);
         setReadiness(nextReadiness);
+        setSubscriptions(nextSubscriptions.subscriptions);
       } else {
         setOverview(null);
         setReadiness(null);
+        setSubscriptions([]);
       }
     } catch (requestError) {
       setError(failureText(requestError));
@@ -122,7 +150,7 @@ export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, 
     setPassword("");
     try {
       await discordApi.loginOwner(suppliedPassword);
-      setNotice("تم التحقق. لوحة المالك تعرض مؤشرات تشغيل فقط ولا تغيّر أسرار Render.");
+      setNotice("تم التحقق. يمكنك الآن مراجعة الخدمة وتفعيل أو تجديد اشتراكات السيرفرات بعد التحقق من التحويل خارج النظام.");
       await refresh();
     } catch (requestError) {
       setError(failureText(requestError));
@@ -157,13 +185,52 @@ export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, 
     }
   };
 
+  const renewSubscription = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const guildId = subscriptionGuildId.trim();
+    if (!/^\d{17,20}$/.test(guildId) || submitting) {
+      setError("أدخل Guild ID صحيحاً من 17 إلى 20 رقماً قبل التفعيل.");
+      return;
+    }
+    const existing = subscriptions.find((subscription) => subscription.guildId === guildId);
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await discordApi.updateOwnerSubscription({ action: existing ? "renew" : "activate", guildId, plan: subscriptionPlan, note: subscriptionNote.trim() || undefined, confirmation: "RENEW_SUBSCRIPTION" });
+      setSubscriptionNote("");
+      setNotice(existing ? "تم تمديد الاشتراك وتسجيل الإجراء في سجل المالك." : "تم تفعيل الاشتراك وتسجيل الإجراء في سجل المالك.");
+      await refresh();
+    } catch (requestError) {
+      setError(failureText(requestError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const suspendSubscription = async (subscription: OwnerSubscription) => {
+    if (submitting || !window.confirm(`تعليق اشتراك السيرفر ${subscription.guildId}؟ لن يُحذف السجل، لكن لن يعود مفعّلاً حتى تجدده.`)) return;
+    setSubmitting(true);
+    setError("");
+    setNotice("");
+    try {
+      await discordApi.updateOwnerSubscription({ action: "suspend", guildId: subscription.guildId, confirmation: "SUSPEND_SUBSCRIPTION" });
+      setNotice("تم تعليق الاشتراك وتسجيل الإجراء في سجل المالك.");
+      await refresh();
+    } catch (requestError) {
+      setError(failureText(requestError));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <main className="owner-console" dir="rtl">
       <header className="owner-heading">
         <div>
           <span className="owner-eyebrow"><KeyRound size={13} /> OWNER CONTROL · PRIVATE</span>
           <h1>لوحة الملاك</h1>
-          <p>وصول محمي لهوية المالك. هذه النسخة للقراءة التشغيلية فقط؛ لا تفعّل Gateway ولا تغيّر إعدادات Discord أو أسرار Render.</p>
+          <p>وصول محمي لهوية المالك. لا تفعّل هذه اللوحة Gateway ولا تغيّر أسرار Render؛ وتتيح تفعيل وتجديد اشتراك Guild يدوياً بعد تحققك من التحويل خارج النظام.</p>
         </div>
         <button className="button button-secondary owner-refresh" type="button" onClick={() => void refresh()} disabled={loading || submitting}>
           <RefreshCw size={15} className={loading ? "owner-spin" : ""} /> تحديث الحالة
@@ -227,7 +294,7 @@ export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, 
             <div className="owner-hero-copy">
               <span className="owner-status-pill owner-pill-ready">جلسة مالك موثّقة</span>
               <h2>مرحباً، {discordUser.username}</h2>
-              <p>التحكم هنا محمي بهوية Discord وقائمة سماح وكلمة مرور. المؤشرات للقراءة فقط.</p>
+              <p>التحكم محمي بهوية Discord وقائمة سماح وكلمة مرور. لا تدخل بيانات دفع أو IBAN أو إيصالات هنا.</p>
             </div>
             <button className="button button-secondary owner-logout" type="button" onClick={() => void logout()} disabled={submitting}><LogOut size={14} /> إنهاء الجلسة</button>
           </section>
@@ -242,6 +309,25 @@ export default function OwnerConsole({ discordUser, oauthConfigured, onConnect, 
               <ReadinessRow label="Discord Gateway" detail={overview ? gatewayLabel(overview.bot.status) : "تعذر قراءة الحالة"} ready={overview?.bot.status === "ready"} />
             </div>
             <div className="owner-safety-note"><AlertTriangle size={15} /><span>لن يظهر زر تشغيل هنا. لا تشغّل Gateway قبل قاعدة بيانات جاهزة، ترحيلات ناجحة، واستضافة دائمة واختبار سيرفر تجريبي.</span></div>
+          </section>
+
+          <section className="panel owner-subscriptions-panel">
+            <div className="owner-panel-heading"><div><h2>تجديد الاشتراكات اليدوي</h2><p>بعد أن تتحقق بنفسك من التحويل خارج Systemix، فعّل أو جدّد السيرفر. لا توجد بوابة دفع أو تأكيد تحويل آلي هنا.</p></div><CalendarClock size={18} /></div>
+            <form className="owner-subscription-form" onSubmit={(event) => void renewSubscription(event)}>
+              {manageableGuilds.filter((guild) => guild.botInstalled).length > 0 && <label>سيرفر من حسابك<select value={manageableGuilds.some((guild) => guild.id === subscriptionGuildId) ? subscriptionGuildId : ""} onChange={(event) => setSubscriptionGuildId(event.currentTarget.value)}><option value="">اختر سيرفراً</option>{manageableGuilds.filter((guild) => guild.botInstalled).map((guild) => <option key={guild.id} value={guild.id}>{guild.name}</option>)}</select></label>}
+              <label>Guild ID<input inputMode="numeric" dir="ltr" value={subscriptionGuildId} onChange={(event) => setSubscriptionGuildId(event.currentTarget.value.replace(/\D/g, ""))} minLength={17} maxLength={20} placeholder="123456789012345678" required /></label>
+              <label>الخطة<select value={subscriptionPlan} onChange={(event) => setSubscriptionPlan(event.currentTarget.value as "monthly" | "annual")}><option value="monthly">شهري · 30 يوماً</option><option value="annual">سنوي · 365 يوماً</option></select></label>
+              <label className="owner-subscription-note-field">ملاحظة داخلية اختيارية<textarea maxLength={300} value={subscriptionNote} onChange={(event) => setSubscriptionNote(event.currentTarget.value)} placeholder="مثال: تم التحقق خارج النظام — لا تكتب بيانات دفع أو حوالة" /></label>
+              <button className="button button-primary" type="submit" disabled={submitting}>{submitting ? <><LoaderCircle size={15} className="owner-spin" /> جارٍ الحفظ</> : <><CalendarClock size={15} /> تفعيل أو تجديد</>}</button>
+            </form>
+            <div className="owner-subscription-disclaimer"><AlertTriangle size={14} /><span>التجديد يمدّ من تاريخ الانتهاء الحالي إن كان مستقبلياً، وإلا يبدأ من الآن. كل تغيير يكتب تدقيقاً قبل الحفظ؛ إذا فشل التدقيق فلن يتغير الاشتراك.</span></div>
+            <div className="owner-subscription-list">
+              {subscriptions.length === 0 ? <p className="owner-subscription-empty">لا توجد اشتراكات مسجلة بعد. استخدم Guild ID الصحيح بعد التحقق الخارجي من التحويل.</p> : subscriptions.map((subscription) => <article className="owner-subscription-row" key={subscription.guildId}>
+                <div><strong dir="ltr">{subscription.guildId}</strong><small>{subscription.plan === "annual" ? "سنوي" : "شهري"} · ينتهي {formatSubscriptionDate(subscription.endsAt)}</small>{subscription.note && <em>{subscription.note}</em>}</div>
+                <span className={`owner-subscription-status owner-subscription-status-${subscription.status}`}>{subscriptionLabel(subscription)}</span>
+                {subscription.status === "active" && <button className="button button-danger owner-suspend" type="button" disabled={submitting} onClick={() => void suspendSubscription(subscription)}>تعليق</button>}
+              </article>)}
+            </div>
           </section>
 
           <section className="panel owner-tools-panel">

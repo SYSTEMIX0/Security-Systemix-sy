@@ -200,6 +200,32 @@ export const lockdownStates = mysqlTable("lockdown_states", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** A manually verified commercial entitlement. Payment details never enter this table. */
+export const guildSubscriptions = mysqlTable("guild_subscriptions", {
+  guildId: varchar("guildId", { length: 20 }).primaryKey(),
+  plan: mysqlEnum("plan", ["monthly", "annual"]).notNull(),
+  status: mysqlEnum("status", ["active", "suspended"]).default("active").notNull(),
+  startsAt: timestamp("startsAt").notNull(),
+  endsAt: timestamp("endsAt").notNull(),
+  note: varchar("note", { length: 300 }),
+  updatedByDiscordId: varchar("updatedByDiscordId", { length: 20 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => [index("guild_subscriptions_status_ends_idx").on(table.status, table.endsAt)]);
+
+/** Owner-only audit trail for entitlement changes; it deliberately excludes payment proof and bank data. */
+export const guildSubscriptionAudits = mysqlTable("guild_subscription_audits", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  guildId: varchar("guildId", { length: 20 }).notNull(),
+  action: mysqlEnum("action", ["activate", "renew", "suspend"]).notNull(),
+  plan: mysqlEnum("plan", ["monthly", "annual"]),
+  previousEndsAt: timestamp("previousEndsAt"),
+  nextEndsAt: timestamp("nextEndsAt"),
+  note: varchar("note", { length: 300 }),
+  actedByDiscordId: varchar("actedByDiscordId", { length: 20 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("guild_subscription_audits_guild_created_idx").on(table.guildId, table.createdAt)]);
+
 export type ModCaseRow = typeof modCases.$inferSelect;
 export type GuildBackupRow = typeof guildBackups.$inferSelect;
 export type TicketRow = typeof tickets.$inferSelect;
@@ -208,3 +234,5 @@ export type GiveawayRow = typeof giveaways.$inferSelect;
 export type SuggestionRow = typeof suggestions.$inferSelect;
 export type GuildDailyStatsRow = typeof guildDailyStats.$inferSelect;
 export type LockdownStateRow = typeof lockdownStates.$inferSelect;
+export type GuildSubscriptionRow = typeof guildSubscriptions.$inferSelect;
+export type GuildSubscriptionAuditRow = typeof guildSubscriptionAudits.$inferSelect;

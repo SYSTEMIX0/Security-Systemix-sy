@@ -35,12 +35,21 @@ export function logSafe(message: string, error?: unknown): void {
 /** Normalized guild configuration. Defaults apply only after a successful read with no saved row. */
 export async function getGuildConfig(guildId: string): Promise<GuildSecurityConfig> {
   try {
-    const row = await db.getGuildSecuritySettings(guildId);
-    return normalizeGuildSecurityConfig(row?.settings ?? defaultGuildSecurityConfig);
+    const [row, subscription] = await Promise.all([
+      db.getGuildSecuritySettings(guildId),
+      db.getGuildSubscription(guildId),
+    ]);
+    const config = normalizeGuildSecurityConfig(row?.settings ?? defaultGuildSecurityConfig);
+    return applySubscriptionEntitlement(config, subscription);
   } catch (error) {
     logSafe(`Config read failed for guild ${guildId}`, error);
     throw new Error("guild_security_config_unavailable");
   }
+}
+
+/** Unprovisioned, suspended, and expired Guilds can observe and log but cannot execute automatic punishments. */
+export function applySubscriptionEntitlement(config: GuildSecurityConfig, subscription: db.SubscriptionSummary | undefined): GuildSecurityConfig {
+  return subscription?.status === "active" ? config : { ...config, mode: "observe" };
 }
 
 /** True when automated enforcement (punishments, lockdowns) is allowed. Observe mode only alerts. */

@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 import type { Express, Request, Response } from "express";
+import { z } from "zod";
+import * as db from "../../db";
 import { ENV } from "../../_core/env";
 import { asyncRoute, validateMutation } from "./common";
-import { getDiscordBotState } from "../bot";
+import { getDiscordBotState, getDiscordClient } from "../bot";
 import { discordClientSecret, getActiveDiscordSession } from "../oauth";
 import {
   clearOwnerCookie, createOwnerCookie, isOwnerEligible, isOwnerPasswordConfigured,
@@ -39,6 +41,33 @@ function ownerConfigured(): boolean {
 function ownerAuthenticated(userId: string | undefined, cookie: string | undefined): boolean {
   return Boolean(userId && isOwnerEligible(userId) && verifyOwnerCookie(cookie, userId));
 }
+
+async function requireOwnerSession(req: Request, res: Response) {
+  let session;
+  try { session = await getActiveDiscordSession(req, res); } catch { session = null; }
+  if (!session || !ownerConfigured() || !ownerAuthenticated(session.user.id, ownerCookieFromRequest(req))) {
+    res.status(401).json({ error: "owner_auth_required" });
+    return null;
+  }
+  return session;
+}
+
+const snowflakeInput = z.string().regex(/^\d{17,20}$/);
+const subscriptionMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.enum(["activate", "renew"]),
+    guildId: snowflakeInput,
+    plan: z.enum(["monthly", "annual"]),
+    note: z.string().trim().max(300).optional(),
+    confirmation: z.literal("RENEW_SUBSCRIPTION"),
+  }).strict(),
+  z.object({
+    action: z.literal("suspend"),
+    guildId: snowflakeInput,
+    note: z.string().trim().max(300).optional(),
+    confirmation: z.literal("SUSPEND_SUBSCRIPTION"),
+  }).strict(),
+]);
 export function registerOwnerApi(app: Express): void {
   app.use("/api/owner", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
@@ -78,12 +107,8 @@ export function registerOwnerApi(app: Express): void {
     res.json({ ok: true });
   });
   app.get("/api/owner/overview", asyncRoute(async (req, res) => {
-    let session;
-    try { session = await getActiveDiscordSession(req, res); } catch { session = null; }
-    if (!session || !isOwnerEligible(session.user.id) || !verifyOwnerCookie(ownerCookieFromRequest(req), session.user.id) || !ownerConfigured()) {
-      res.status(401).json({ error: "owner_auth_required" });
-      return;
-    }
+    const session = await requireOwnerSession(req, res);
+    if (!session) return;
     const bot = getDiscordBotState();
     res.json({
       bot: { status: bot.status },
@@ -94,6 +119,44 @@ export function registerOwnerApi(app: Express): void {
         ownerAllowlistConfigured: parseOwnerIds() !== null,
       },
     });
+  }));
+  app.get("/api/owner/subscriptions", asyncRoute(async (req, res) => {
+    const session = await requireOwnerSession(req, res);
+    if (!session) return;
+    try {
+      const subscriptions = await db.listGuildSubscriptions();
+      res.json({ subscriptions });
+    } catch {
+      res.status(503).json({ error: "owner_subscription_unavailable" });
+    }
+  }));
+  app.post("/api/owner/subscriptions", asyncRoute(async (req, res) => {
+    if (!validateMutation(req, res)) return;
+    const session = await requireOwnerSession(req, res);
+    if (!session) return;
+    const parsed = subscriptionMutationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "owner_subscription_invalid" });
+      return;
+    }
+    const client = getDiscordClient();
+    if (!client || getDiscordBotState().status !== "ready" || !client.guilds.cache.has(parsed.data.guildId)) {
+      res.status(409).json({ error: "owner_subscription_guild_unavailable" });
+      return;
+    }
+    try {
+      const subscription = parsed.data.action === "suspend"
+        ? await db.suspendGuildSubscription({ guildId: parsed.data.guildId, note: parsed.data.note, actedByDiscordId: session.user.id })
+        : await db.renewGuildSubscription({ guildId: parsed.data.guildId, plan: parsed.data.plan, note: parsed.data.note, actedByDiscordId: session.user.id });
+      res.json({ ok: true, subscription });
+    } catch (error) {
+      if (error instanceof Error && error.message === "subscription_not_found") {
+        res.status(404).json({ error: "owner_subscription_not_found" });
+        return;
+      }
+      // Includes failure to persist the audit precondition; fail closed and do not claim activation.
+      res.status(503).json({ error: "owner_subscription_write_blocked" });
+    }
   }));
 }
 /** Small test-only reset hook for isolated rate-limit tests. */

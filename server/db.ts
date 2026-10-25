@@ -1,7 +1,10 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
+  guildSubscriptionAudits,
+  guildSubscriptions,
   guildSecuritySettings,
+  GuildSubscriptionRow,
   InsertUser,
   SecurityEventRow,
   GuildSecuritySettingsRow,
@@ -188,4 +191,141 @@ export async function listSecurityEvents(guildId: string, limit = 50): Promise<S
     .where(eq(securityEvents.guildId, guildId))
     .orderBy(desc(securityEvents.createdAt), desc(securityEvents.id))
     .limit(safeLimit);
+}
+
+export type SubscriptionPlan = "monthly" | "annual";
+export type EffectiveSubscriptionStatus = "active" | "suspended" | "expired";
+
+export type SubscriptionSummary = {
+  guildId: string;
+  plan: SubscriptionPlan;
+  status: EffectiveSubscriptionStatus;
+  startsAt: Date;
+  endsAt: Date;
+  note: string | null;
+  updatedByDiscordId: string;
+  updatedAt: Date;
+};
+
+export function subscriptionDurationDays(plan: SubscriptionPlan): number {
+  return plan === "annual" ? 365 : 30;
+}
+
+/** A suspended row is always suspended; an active row becomes expired as soon as its end passes. */
+export function effectiveSubscriptionStatus(row: Pick<GuildSubscriptionRow, "status" | "endsAt">, now = new Date()): EffectiveSubscriptionStatus {
+  if (row.status === "suspended") return "suspended";
+  return row.endsAt.getTime() > now.getTime() ? "active" : "expired";
+}
+
+/** Renewals extend from a future end date, otherwise start a new period immediately. */
+export function subscriptionWindow(current: Pick<GuildSubscriptionRow, "endsAt"> | undefined, plan: SubscriptionPlan, now = new Date()): { startsAt: Date; endsAt: Date } {
+  const anchor = current && current.endsAt.getTime() > now.getTime() ? current.endsAt : now;
+  const startsAt = new Date(anchor.getTime());
+  const endsAt = new Date(startsAt.getTime() + subscriptionDurationDays(plan) * 86_400_000);
+  return { startsAt, endsAt };
+}
+
+function subscriptionSummary(row: GuildSubscriptionRow, now = new Date()): SubscriptionSummary {
+  return {
+    guildId: row.guildId,
+    plan: row.plan,
+    status: effectiveSubscriptionStatus(row, now),
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    note: row.note,
+    updatedByDiscordId: row.updatedByDiscordId,
+    updatedAt: row.updatedAt,
+  };
+}
+
+export async function listGuildSubscriptions(now = new Date()): Promise<SubscriptionSummary[]> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const rows = await db.select().from(guildSubscriptions).orderBy(desc(guildSubscriptions.updatedAt), desc(guildSubscriptions.guildId));
+  return rows.map((row) => subscriptionSummary(row, now));
+}
+
+/** Returns no row for an unprovisioned Guild; callers must treat that as non-active. */
+export async function getGuildSubscription(guildId: string, now = new Date()): Promise<SubscriptionSummary | undefined> {
+  // This path controls automatic punishments, so it must not rely on process-local state.
+  // In a multi-instance rollout, a stale active entitlement could otherwise outlive a suspension.
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [row] = await db.select().from(guildSubscriptions).where(eq(guildSubscriptions.guildId, guildId)).limit(1);
+  return row ? subscriptionSummary(row, now) : undefined;
+}
+
+export async function renewGuildSubscription(input: {
+  guildId: string;
+  plan: SubscriptionPlan;
+  note?: string;
+  actedByDiscordId: string;
+  now?: Date;
+}): Promise<SubscriptionSummary> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = input.now ?? new Date();
+  const note = input.note?.trim().slice(0, 300) || null;
+  return db.transaction(async (tx) => {
+    // Locks the existing row (or InnoDB's primary-key gap for a new row) so concurrent renewals
+    // cannot calculate from the same end date. The audit and state change commit or roll back together.
+    await tx.execute(sql`SELECT guildId FROM guild_subscriptions WHERE guildId = ${input.guildId} FOR UPDATE`);
+    const [current] = await tx.select().from(guildSubscriptions).where(eq(guildSubscriptions.guildId, input.guildId)).limit(1);
+    const window = subscriptionWindow(current, input.plan, now);
+    const action = current ? "renew" : "activate";
+    await tx.insert(guildSubscriptionAudits).values({
+      guildId: input.guildId,
+      action,
+      plan: input.plan,
+      previousEndsAt: current?.endsAt ?? null,
+      nextEndsAt: window.endsAt,
+      note,
+      actedByDiscordId: input.actedByDiscordId,
+    });
+    await tx.insert(guildSubscriptions).values({
+      guildId: input.guildId,
+      plan: input.plan,
+      status: "active",
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+      note,
+      updatedByDiscordId: input.actedByDiscordId,
+    }).onDuplicateKeyUpdate({ set: {
+      plan: input.plan,
+      status: "active",
+      startsAt: window.startsAt,
+      endsAt: window.endsAt,
+      note,
+      updatedByDiscordId: input.actedByDiscordId,
+      updatedAt: now,
+    } });
+    const [next] = await tx.select().from(guildSubscriptions).where(eq(guildSubscriptions.guildId, input.guildId)).limit(1);
+    if (!next) throw new Error("subscription_write_missing");
+    return subscriptionSummary(next, now);
+  });
+}
+
+export async function suspendGuildSubscription(input: { guildId: string; note?: string; actedByDiscordId: string; now?: Date }): Promise<SubscriptionSummary> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = input.now ?? new Date();
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT guildId FROM guild_subscriptions WHERE guildId = ${input.guildId} FOR UPDATE`);
+    const [current] = await tx.select().from(guildSubscriptions).where(eq(guildSubscriptions.guildId, input.guildId)).limit(1);
+    if (!current) throw new Error("subscription_not_found");
+    const note = input.note?.trim().slice(0, 300) || current.note;
+    await tx.insert(guildSubscriptionAudits).values({
+      guildId: input.guildId,
+      action: "suspend",
+      plan: current.plan,
+      previousEndsAt: current.endsAt,
+      nextEndsAt: current.endsAt,
+      note,
+      actedByDiscordId: input.actedByDiscordId,
+    });
+    await tx.update(guildSubscriptions).set({ status: "suspended", note, updatedByDiscordId: input.actedByDiscordId, updatedAt: now }).where(eq(guildSubscriptions.guildId, input.guildId));
+    const [next] = await tx.select().from(guildSubscriptions).where(eq(guildSubscriptions.guildId, input.guildId)).limit(1);
+    if (!next) throw new Error("subscription_write_missing");
+    return subscriptionSummary(next, now);
+  });
 }
