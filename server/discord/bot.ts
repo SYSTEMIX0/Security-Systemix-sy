@@ -365,10 +365,15 @@ function createClient(plan: IntentPlan): Client {
 
   bot.on(Events.GuildCreate, (guild) => {
     runtimeState.guildCount = bot.guilds.cache.size;
+    // Guild IDs are public Discord identifiers. Record membership transitions so
+    // installation failures or an immediate removal can be diagnosed without logs
+    // containing channel names, user content, tokens, or guild configuration.
+    console.info(`[Discord] Guild membership joined: ${guild.id}; total=${runtimeState.guildCount}`);
     void dispatch("onGuildCreate", guild);
   });
-  bot.on(Events.GuildDelete, () => {
+  bot.on(Events.GuildDelete, (guild) => {
     runtimeState.guildCount = bot.guilds.cache.size;
+    console.warn(`[Discord] Guild membership removed: ${guild.id}; total=${runtimeState.guildCount}`);
   });
   bot.on(Events.ShardDisconnect, (event) => {
     const closeCode = typeof event.code === "number" ? event.code : 0;

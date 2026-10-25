@@ -51,7 +51,7 @@
 - التنفيذ يستخدم Authorization Code و`state` وجلسة Discord مشفّرة، ويعيد Guilds التي يملك المستخدم حق إدارتها. المعرّف المعتمد هو `1553314620477804544` لتطبيق **Security Systemix**؛ تم تدوير Bot Token وضبط Client ID وRedirect URI في Render بتاريخ 26 أكتوبر 2026.
 - يظهر Discord البوت باسم `Security Systemix #2195` داخل سيرفر Systemix. يجب أن يتحقق Gateway من `Application ID` الفعلي للعميل بدلاً من افتراض تطابقه مع Bot User ID، وأن تعرض صفحة الحالة المعرفين العامين فقط لتشخيص أي ربط خاطئ دون كشف التوكن.
 - قُدمت `DISCORD_CLIENT_SECRET` و`DISCORD_BOT_TOKEN` عبر مخزن الأسرار الآمن، لا في Git أو المحادثة. `/api/discord/login` أعاد client_id وRedirect URI الصحيحين مع scopes `identify guilds`؛ لم يُختبر OAuth callback بتسجيل مستخدم حقيقي بعد.
-- فحص Render الحي في 25 أكتوبر 2026: `DATABASE_CA_CERT` مضبوط، و`/api/health` يعيد 200 و`/api/ready` يعيد 200 مع `status=ready` و`migration=ready`؛ سجل Render يؤكد أن الترحيلات محدّثة. Gateway الإنتاجي ما زال مغلقاً عمداً، ولم يُختبر OAuth callback أو اتصال Guild أو مزامنة Slash؛ لا يُدّعى أي اختبار Discord حي.
+- فحص Render الحي في 26 أكتوبر 2026: `DATABASE_CA_CERT` مضبوط، و`/api/health` يعيد 200 و`/api/ready` يعيد 200 مع `status=ready` و`migration=ready`؛ Gateway `ready` وIntents العضوية والمحتوى مفعلة ومزامنة Slash ناجحة. لكنه متصل بـ`guildCount=0`؛ لا يعد أي إعداد لوقات أو تذاكر حياً حتى يظهر البوت نفسه في Guild تجريبي.
 - التشغيل المنشور على مدار الساعة يتطلب Reserved Hosting؛ Autoscale قد ينام أو يشغّل أكثر من عملية. لن أفعّل الاستضافة ذات التكلفة قبل عرض التسعير والحصول على موافقة بطاقة المنصة.
 - بعد دعوة البوت إلى Guild تجريبي، يجب التحقق من `VIEW_AUDIT_LOG` وترتيب الأدوار. مراقبة انضمام الأعضاء تحتاج `GUILD_MEMBERS` بعد تفعيله في Discord Developer Portal؛ وتُقيّد الإجراءات الآلية بوضع الحماية والسجل السابق.
 - جداول الوحدات وMigration إضافية موجودة. لا يجوز اعتبار المنتج كاملاً للبيع قبل توصيل واجهات الإعداد والمراجعة والاختبار الحي ونمط استضافة دائم معتمد.
@@ -61,7 +61,7 @@
 - يجب التحقق من `/manus-routes.json` ومطابقته لصفحات التطبيق بعد التشغيل.
 - يجب فحص الواجهات الأساسية في مقاسات سطح المكتب والهاتف، والتأكد من أن أوضاع المعاينة لا تعرض نتائج مزيفة كأنها حقيقية.
 - يجب ألا توصف ميزة بأنها متصلة أو منشورة أو جاهزة للبيع قبل دليل من تشغيل حقيقي واختبارها في Discord.
-- الدليل الحالي: `pnpm check` و`pnpm test` (**110 اختبارات**) و`pnpm build` و`git diff --check` ناجحة. Render يعيد `/api/health` 200 و`/api/ready` 200 مع `status=ready` و`migration=ready`، والسجل يؤكد أن الترحيلات محدّثة؛ Gateway ما زال `off by policy`. Smoke المعزول أبقى Gateway بـ`blocked_by_readiness`؛ كما رفض overview المالك غير الموثق (401) وطلب الدخول بلا CSRF (403)، وأعاد `/owner` وmanifest 200. OAuth callback الحقيقي وGuild التجريبي والفحص المرئي/الحقيقي ما تزال مفتوحة.
+- الدليل الحالي: `pnpm check` و`pnpm test` (**128 اختباراً**) و`pnpm build` و`git diff --check` ناجحة. Render يعيد `/api/health` 200 و`/api/ready` 200 مع `status=ready` و`migration=ready`، والسجل يؤكد أن الترحيلات محدّثة؛ Gateway `ready` لكنه يرى صفراً من Guilds. لا تكتمل اختبارات Discord الحية حتى تثبيت Bot User ID `1553314620477804544` في سيرفر تجريبي والتأكد من عدم إزالته.
 
 ## 9. بوت Discord متعدد المجالات مع أولوية الحماية — 18/19 وحدة مصدرية؛ الحماية متصلة جزئياً والتحقق الحي مفتوح
 - يجب أن يبقى Security Systemix بوتاً لمنصة Discord فقط، وأن تبقى الحماية التخصص الأساسي والأولوية المرئية في التنقل ومركز الوحدات.
