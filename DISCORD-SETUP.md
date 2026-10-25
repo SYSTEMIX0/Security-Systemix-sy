@@ -28,6 +28,8 @@
 
 إذا لم تكن لديك قاعدة MySQL مستضافة، اترك `DATABASE_URL` فارغاً ولا تكتب كلمة أو قيمة تجريبية. اختر مزود MySQL، أنشئ قاعدة ومستخدم اتصال، ثم انسخ **رابط الاتصال MySQL الكامل** من صفحة المزود إلى حقل `DATABASE_URL` في Render. يجب أن يحتوي الرابط على معلومات المضيف والمنفذ واسم القاعدة وبيانات المستخدم، وقد يرفق المزود إعداد TLS. لا تشارك الرابط هنا لأنه يتضمن كلمة مرور القاعدة.
 
+إذا استخدمت Aiven MySQL، نزّل شهادة CA من صفحة الخدمة **Overview → Connection information → CA Certificate → Download**. أضف محتوى ملف PEM كاملاً إلى متغير Render `DATABASE_CA_CERT`، مع إبقاء أسطر الشهادة كما هي ودون علامات اقتباس. يحتاج التحقق الآمن من شهادة Aiven إلى CA الخاص بالمشروع؛ لا تعطل فحص الشهادة أو تستخدم `rejectUnauthorized=false`.
+
 بعد وضع الرابط في Render، أضف `SYSTEMIX_AUTO_MIGRATE=true`. عند إعادة البناء/التشغيل سيحاول التطبيق إنشاء جداول Systemix في القاعدة المتصلة. هذا الخيار لا ينشئ حساب قاعدة البيانات أو القاعدة لدى المزود، ولا يحول قاعدة PostgreSQL إلى MySQL.
 
 ## 4. قائمة Render Environment
@@ -41,6 +43,7 @@
 | `DISCORD_REDIRECT_URI` | `https://security-systemix-sy.onrender.com/api/discord/callback` |
 | `DISCORD_BOT_TOKEN` | Bot Token من تبويب Bot في Developer Portal |
 | `DATABASE_URL` | رابط اتصال قاعدة MySQL فعلية؛ ليس PostgreSQL ولا قيمة تجريبية |
+| `DATABASE_CA_CERT` | شهادة CA بصيغة PEM من Aiven عند استخدامه؛ لا تضع فيها رابط الاتصال أو كلمة المرور |
 | `SYSTEMIX_AUTO_MIGRATE` | `true` على Render بعد توفير قاعدة MySQL |
 | `SYSTEMIX_PRIVILEGED_INTENTS` | `auto` عادةً؛ يختار الـIntents التي يقبلها Discord |
 | `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY` | اتركه `false` الآن؛ لا تغيّره قبل جاهزية القاعدة والاختبار والاستضافة المستمرة |
@@ -55,6 +58,8 @@
 - `https://security-systemix-sy.onrender.com/api/health` — يثبت أن خادم الويب يرد فقط.
 - `https://security-systemix-sy.onrender.com/api/ready` — يجب أن يعيد `ready` قبل التفكير بتشغيل Gateway؛ 503 يعني أن القاعدة أو migrations غير جاهزة.
 - لوحة الموقع → **مركز تشغيل البوت** — تعرض حالة Gateway وIntents ومزامنة Slash بصورة فعلية.
+
+إذا ظهر `HANDSHAKE_SSL_ERROR` في سجلات Render مع Aiven، راجع وجود شهادة CA الصحيحة في `DATABASE_CA_CERT`؛ اترك Gateway الإنتاجي مغلقاً حتى يصبح `/api/ready` جاهزاً.
 
 لا تضبط `SYSTEMIX_ENABLE_PRODUCTION_GATEWAY=true` إلا بعد أن تصبح `/api/ready` جاهزة، وتجرب تسجيل OAuth وتثبيت البوت ومزامنة Slash والصلاحيات على Guild تملكه، وتختار استضافة مناسبة لتشغيل Gateway باستمرار. خطة Render الحالية Free؛ وفق توثيق Render، خدمة الويب المجانية قد تتوقف عند الخمول، لذلك لا تَعِد بتوفر 24/7 عليها. لا تتم أي ترقية مدفوعة دون مراجعة التكلفة والموافقة عليها.
 

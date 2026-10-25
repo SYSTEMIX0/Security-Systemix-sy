@@ -26,6 +26,24 @@ describe("normalizeDatabaseUrl", () => {
     }
   });
 
+  it("attaches a supplied Aiven CA certificate without disabling verification", () => {
+    const ca = "-----BEGIN CERTIFICATE-----\nexample-ca\n-----END CERTIFICATE-----\n";
+    const result = normalizeDatabaseUrl(
+      "mysql://avnadmin:password@systemix-db.example.aivencloud.com:1939/defaultdb?ssl-mode=REQUIRED",
+      ca,
+    );
+    expect(sslOf(result)).toEqual({ rejectUnauthorized: true, ca: ca.trim() });
+  });
+
+  it("normalizes escaped newlines in the CA environment variable", () => {
+    const ca = "-----BEGIN CERTIFICATE-----\nexample-ca\n-----END CERTIFICATE-----";
+    const result = normalizeDatabaseUrl(
+      "mysql://u:p@db.example.com:1939/app?ssl-mode=REQUIRED",
+      ca.replace(/\n/g, "\\n"),
+    );
+    expect(sslOf(result)).toEqual({ rejectUnauthorized: true, ca });
+  });
+
   it("leaves plain local URLs without TLS and keeps credentials intact", () => {
     const result = normalizeDatabaseUrl("mysql://user:p%40ss@localhost:3306/app");
     expect(sslOf(result)).toBeNull();

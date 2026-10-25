@@ -4,7 +4,7 @@
 const TLS_HINT_KEYS = ["sslaccept", "ssl-mode", "sslmode"] as const;
 const TLS_HINT_VALUES = new Set(["strict", "required", "require", "verify_ca", "verify_identity", "verify-full", "verify-ca"]);
 
-export function normalizeDatabaseUrl(raw: string): string {
+export function normalizeDatabaseUrl(raw: string, caCertificate?: string): string {
   const value = raw.trim();
   let url: URL;
   try {
@@ -22,6 +22,9 @@ export function normalizeDatabaseUrl(raw: string): string {
     url.searchParams.delete(key);
   }
   if (!wantsTls) return url.toString();
-  url.searchParams.set("ssl", JSON.stringify({ rejectUnauthorized: true }));
+  const ca = caCertificate?.replace(/\\n/g, "\n").trim();
+  const sslOptions: { rejectUnauthorized: boolean; ca?: string } = { rejectUnauthorized: true };
+  if (ca) sslOptions.ca = ca;
+  url.searchParams.set("ssl", JSON.stringify(sslOptions));
   return url.toString();
 }
