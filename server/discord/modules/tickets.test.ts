@@ -26,4 +26,10 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('const mode = event.currentTarget.value as GuildSecurityConfig["mode"];');
     expect(source).toContain("setDraft((current) => current ? { ...current, mode } : current);");
   });
+
+  it("keeps the guided ticket setup command with an explicit support-role", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain('sub.setName("setup")');
+    expect(source).toContain('option.setName("support-role")');
+  });
 });
