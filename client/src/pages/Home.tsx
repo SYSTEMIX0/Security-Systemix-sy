@@ -75,6 +75,9 @@ const DiscordConnection = lazy(() => import("@/components/DiscordConnection"));
 const CommunityConsole = lazy(() => import("@/components/CommunityConsole"));
 const BotOperationsPage = lazy(() => import("@/components/BotOperationsPage"));
 const OwnerConsole = lazy(() => import("@/components/OwnerConsole"));
+const SystemSettingsConsole = lazy(() => import("@/components/SystemSettingsConsole"));
+const LiveEventsConsole = lazy(() => import("@/components/LiveEventsConsole"));
+const UnavailableFeaturePanel = lazy(() => import("@/components/UnavailableFeaturePanel"));
 
 type IconType = typeof ShieldCheck;
 
@@ -85,15 +88,15 @@ const navGroups: { label: string; items: { id: DashboardSection; label: string; 
     label: "الرئيسية",
     items: [
       { id: "overview", label: "نظرة عامة", icon: LayoutDashboard },
-      { id: "incidents", label: "مركز الحوادث", icon: Siren, badge: "2" },
-      { id: "modules", label: "مركز الوحدات", icon: Boxes, badge: "13" },
+      { id: "incidents", label: "مركز الحوادث", icon: Siren },
+      { id: "modules", label: "مركز الوحدات", icon: Boxes },
     ],
   },
   {
     label: "الحماية",
     items: [
       { id: "protection", label: "قواعد الحماية", icon: ShieldCheck },
-      { id: "delegation", label: "تفويض الصلاحيات", icon: Fingerprint, badge: "3" },
+      { id: "delegation", label: "تفويض الصلاحيات", icon: Fingerprint },
       { id: "logs", label: "سجل التدقيق", icon: History },
       { id: "lists", label: "قوائم السماح والمنع", icon: ListFilter },
       { id: "backups", label: "النسخ والاستعادة", icon: DatabaseBackup },
@@ -101,7 +104,7 @@ const navGroups: { label: string; items: { id: DashboardSection; label: string; 
   },
   {
     label: "المجتمع",
-    items: [{ id: "community", label: "إدارة المجتمع", icon: Users, badge: "5" }],
+    items: [{ id: "community", label: "إدارة المجتمع", icon: Users }],
   },
   {
     label: "الإدارة",
@@ -220,17 +223,16 @@ function Sidebar({ active, onSelect, mobileOpen, onClose, selectedGuildName, man
             <div className="user-copy"><strong>{discordUsername ?? "Discord غير مربوط"}</strong><span>{discordUsername ? "حساب إدارة Discord" : "الربط مطلوب"}</span></div>
             <button className="icon-button user-more" aria-label="خيارات الحساب"><MoreHorizontal size={18} /></button>
           </div>
-          <div className="sidebar-version"><span>SECURITY SYSTEMIX</span><span>v0.1 · PREVIEW</span></div>
+          <div className="sidebar-version"><span>SECURITY SYSTEMIX</span><span>v0.2 · BETA CORE</span></div>
         </div>
       </aside>
     </>
   );
 }
 
-function Topbar({ active, onMenu, onNotify, connection, onConnect }: {
+function Topbar({ active, onMenu, connection, onConnect }: {
   active: DashboardSection;
   onMenu: () => void;
-  onNotify: () => void;
   connection: ReturnType<typeof useDiscordDashboard>["data"];
   onConnect: () => void;
 }) {
@@ -247,8 +249,8 @@ function Topbar({ active, onMenu, onNotify, connection, onConnect }: {
       <div className="topbar-actions">
         <div className={`connection-pill ${botReady ? "connection-pill-live" : connection.user ? "connection-pill-account" : ""}`}><span className="connection-dot" />{connectionLabel}</div>
         <button className="button button-ghost topbar-connect" onClick={onConnect}><Radio size={14} /><span>{connection.user ? "إدارة الربط" : "ربط Discord"}</span></button>
-        <button className="icon-button topbar-search" aria-label="بحث" title="البحث غير مفعّل في المعاينة"><Search size={18} /></button>
-        <button className="icon-button notification-button" aria-label="التنبيهات" onClick={onNotify}>
+        <button className="icon-button topbar-search" aria-label="البحث غير متاح حالياً" title="البحث سيُفعّل مع سجل حي قابل للفهرسة" disabled><Search size={18} /></button>
+        <button className="icon-button notification-button" aria-label="مركز التنبيهات غير متاح حالياً" title="لا نعرض تنبيهات محاكاة" disabled>
           <Bell size={18} /><span className="notification-dot" />
         </button>
         <div className="topbar-avatar">MA</div>
@@ -698,8 +700,6 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
   const selectedGuild = discordConnection.data.guilds.find((guild) => guild.id === discordConnection.selectedGuildId) ?? null;
   const [active, setActive] = useState<DashboardSection>(initialSection);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [panicOpen, setPanicOpen] = useState(false);
-  const [emergency, setEmergency] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   const notify = (message: ToastMessage) => {
@@ -719,45 +719,45 @@ function SystemixDashboard({ initialSection = "overview" }: { initialSection?: D
     }
     window.open(discordLoginUrl(), "_blank", "noopener,noreferrer");
   };
+  const guildRequired = (title: string, description: string) => <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة الوحدة...</div>}><UnavailableFeaturePanel title={title} description={description} reason="اختر سيرفر Discord أولاً. لن نعرض بيانات نموذجية بدلاً من بيانات السيرفر الفعلية." actionLabel="ربط Discord واختيار سيرفر" actionSection="connection" onNavigate={setActive} /></Suspense>;
+  const selectedGuildName = selectedGuild?.name ?? "السيرفر المحدد";
   const renderSection = () => {
     switch (active) {
-      case "overview": return selectedGuild?.botInstalled && discordConnection.data.bot.status === "ready"
-        ? <OverviewPage onSection={setActive} onToast={notify} emergency={emergency} onPanic={() => setPanicOpen(true)} />
-        : <LiveOverview data={discordConnection.data} readiness={discordConnection.readiness} selectedGuild={selectedGuild} loading={discordConnection.loading} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onOperations={() => setActive("operations")} />;
+      case "overview": return <LiveOverview data={discordConnection.data} readiness={discordConnection.readiness} selectedGuild={selectedGuild} loading={discordConnection.loading} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onOperations={() => setActive("operations")} />;
       case "connection": return <Suspense fallback={<div className="panel discord-loading">جار تحميل ربط Discord...</div>}><DiscordConnection connection={discordConnection.data} loading={discordConnection.loading} dashboardError={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onSelectGuild={discordConnection.selectGuild} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onNotice={notify} /></Suspense>;
       case "modules": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز الوحدات...</div>}><ModuleCenter bot={discordConnection.data.bot} selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} onToast={notify} /></Suspense>;
       case "operations": return <Suspense fallback={<div className="panel discord-loading">جار تحميل مركز تشغيل البوت...</div>}><BotOperationsPage data={discordConnection.data} loading={discordConnection.loading} error={discordConnection.error} selectedGuildId={discordConnection.selectedGuildId} onRefresh={discordConnection.refresh} onNavigate={setActive} /></Suspense>;
       case "owner": return <Suspense fallback={<div className="panel discord-loading">جار تحميل لوحة الملاك...</div>}><OwnerConsole discordUser={discordConnection.data.user} oauthConfigured={discordConnection.data.oauthConfigured} onConnect={connectDiscord} onNavigate={setActive} /></Suspense>;
       case "protection": return discordConnection.selectedGuildId
-        ? <ProtectionConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} />
-        : <ProtectionPage onToast={notify} />;
+        ? <ProtectionConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} />
+        : guildRequired("إعدادات الحماية الحية", "الإعدادات الفعلية لا تظهر إلا بعد اختيار سيرفر مخوّل.");
       case "community": return discordConnection.selectedGuildId
-        ? <Suspense fallback={<div className="panel discord-loading">جار تحميل إدارة المجتمع...</div>}><CommunityConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuild?.name ?? "السيرفر المحدد"} /></Suspense>
-        : <div className="panel"><p>اربط حساب Discord واختر سيرفراً لعرض إعدادات المجتمع الحقيقية.</p><button className="button button-primary" onClick={() => setActive("connection")}>ربط Discord</button></div>;
-      case "delegation": return <DelegationPage onToast={notify} />;
-      case "incidents": return <IncidentPage onToast={notify} />;
-      case "logs": return <LogsPage onToast={notify} />;
-      case "lists": return <ListsPage onToast={notify} />;
-      case "backups": return <BackupsPage onToast={notify} />;
+        ? <Suspense fallback={<div className="panel discord-loading">جار تحميل إدارة المجتمع...</div>}><CommunityConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
+        : guildRequired("إدارة المجتمع", "إعدادات المجتمع الحية مرتبطة بسيرفر Discord محدد.");
+      case "delegation": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة التفويض...</div>}><UnavailableFeaturePanel title="تفويض الصلاحيات" description="محرك التفويض موجود في البوت، لكن محرر grants الآمن لم يكتمل بعد." reason="لا نعرض موظفين أو تفويضات نموذجية ولا نسمح بتعديلها قبل توفير API وواجهة تأكيد وتدقيق مخصصة." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
+      case "incidents": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل الحوادث الحية...</div>}><LiveEventsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} view="incidents" /></Suspense>
+        : guildRequired("مركز الحوادث", "الحوادث تُقرأ من سجل السيرفر المحدد فقط.");
+      case "logs": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل سجل التدقيق الحي...</div>}><LiveEventsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} view="logs" /></Suspense>
+        : guildRequired("سجل التدقيق", "السجل الحي لا يعرض سوى أحداث السيرفر المختار.");
+      case "lists": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة القوائم...</div>}><UnavailableFeaturePanel title="قوائم السماح والمنع" description="الواجهة العامة للقوائم لم تُبن بعد." reason="حقول الاستثناء المتخصصة داخل سياسات الحماية موجودة، لكن لا يوجد معنى موحد ومطبق بعد لقائمة عامة للأعضاء أو البوتات أو القنوات." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
+      case "backups": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة النسخ...</div>}><UnavailableFeaturePanel title="النسخ والاستعادة" description="لا يوجد حالياً API لوحة آمن لإنشاء أو استعادة النسخ." reason="لن نعرض نسخاً افتراضية أو زر استعادة لا ينفذ شيئاً. الاستعادة تبقى محجوبة حتى تبنى بخطة أثر وتأكيد وتدقيق." actionLabel="فتح إعدادات الحماية" actionSection="protection" onNavigate={setActive} /></Suspense>;
       case "team": return <TeamPage selectedGuildName={selectedGuild?.name ?? null} botInstalled={selectedGuild?.botInstalled ?? false} memberIntentEnabled={discordConnection.data.bot.memberIntentEnabled ?? false} />;
-      case "plans": return <PlansPage onToast={notify} />;
-      case "settings": return <SettingsPage onToast={notify} />;
-      default: return <OverviewPage onSection={setActive} onToast={notify} emergency={emergency} onPanic={() => setPanicOpen(true)} />;
+      case "plans": return <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل حالة التراخيص...</div>}><UnavailableFeaturePanel title="التراخيص والاشتراكات" description="البيع والتحويل اليدوي يحتاجان سجل اشتراك وتفعيل من لوحة المالك قبل ظهورهما للعملاء." reason="لا يوجد تحصيل أو تجديد أو ترخيص حي في هذه النسخة بعد، لذلك أزلنا باقات وأسعار العرض بدلاً من تسويقها كخدمة قائمة." /></Suspense>;
+      case "settings": return discordConnection.selectedGuildId
+        ? <Suspense fallback={<div className="panel discord-loading">جارٍ تحميل إعدادات السيرفر...</div>}><SystemSettingsConsole guildId={discordConnection.selectedGuildId} guildName={selectedGuildName} /></Suspense>
+        : guildRequired("إعدادات النظام", "كل إعداد حقيقي يجب أن ينتمي إلى سيرفر Discord تختاره أنت.");
+      default: return <LiveOverview data={discordConnection.data} readiness={discordConnection.readiness} selectedGuild={selectedGuild} loading={discordConnection.loading} onConnect={connectDiscord} onRefresh={discordConnection.refresh} onOperations={() => setActive("operations")} />;
     }
   };
   return <div className="systemix-app" dir="rtl">
     <Sidebar active={active} onSelect={setActive} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} selectedGuildName={discordConnection.data.guilds.find((guild) => guild.id === discordConnection.selectedGuildId)?.name ?? null} manageableGuildCount={discordConnection.data.guilds.length} discordUsername={discordConnection.data.user?.username ?? null} />
     <main className="main-shell">
-      <Topbar active={active} connection={discordConnection.data} onConnect={connectDiscord} onMenu={() => setMobileOpen(true)} onNotify={() => notify({ title: "لا توجد تنبيهات حية", detail: "بيانات التنبيهات الحالية تجريبية." })} />
+      <Topbar active={active} connection={discordConnection.data} onConnect={connectDiscord} onMenu={() => setMobileOpen(true)} />
       <div className="main-content"><RuntimeStatusBanner data={discordConnection.data} readiness={discordConnection.readiness} onDetails={() => setActive("operations")} />{renderSection()}<footer className="page-footer"><span>© 2026 Security Systemix</span><span><i /> طبقة الحماية لديسكورد فقط</span><button onClick={() => setActive("settings")}>الخصوصية والأمان <ArrowUpLeft size={12} /></button></footer></div>
     </main>
     {toast && <Toast message={toast} onClose={() => setToast(null)} />}
-    {panicOpen && <Dialog title="تشغيل وضع الطوارئ؟" danger onClose={() => setPanicOpen(false)}>
-      <p className="dialog-description">سيوقف Circuit Breaker النشاط تدريجياً ويقفل القنوات الحساسة حسب سياستك. قد يؤثر ذلك على الأعضاء.</p>
-      <div className="panic-preview-list"><div><CheckCircle2 size={15} /> معاينة الخطوات قبل التنفيذ</div><div><CheckCircle2 size={15} /> تسجيل المبرر والموافق</div><div><AlertTriangle size={15} /> يحتاج اتصالاً فعلياً وصلاحيات مناسبة</div></div>
-      <div className="dialog-caveat"><AlertTriangle size={15} /><span>المعاينة لا تغيّر إعدادات Discord ولا تقفل أي قناة.</span></div>
-      <div className="dialog-actions"><button className="button button-ghost" onClick={() => setPanicOpen(false)}>إلغاء</button><button className="button button-danger" onClick={() => { setEmergency(true); setPanicOpen(false); setActive("overview"); notify({ title: "وضع الطوارئ للمعاينة فقط", detail: "لم يُرسل أي طلب إلى Discord.", kind: "warning" }); }}>محاكاة في لوحة العرض</button></div>
-    </Dialog>}
   </div>;
 }
 

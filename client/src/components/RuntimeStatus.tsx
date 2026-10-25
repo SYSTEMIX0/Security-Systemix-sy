@@ -78,6 +78,7 @@ function gatewayStatus(data: DiscordDashboardData): string {
 }
 
 export function LiveOverview({ data, readiness, selectedGuild, loading, onConnect, onRefresh, onOperations }: LiveOverviewProps) {
+  const verifiedReady = data.bot.status === "ready" && readiness?.ready === true;
   const guildStatus = !selectedGuild
     ? data.user ? "اختر سيرفراً من ربط Discord" : "لم يتم ربط حساب Discord"
     : selectedGuild.botInstalled ? `البوت مضاف إلى ${selectedGuild.name}` : `البوت غير مضاف إلى ${selectedGuild.name}`;
@@ -87,7 +88,9 @@ export function LiveOverview({ data, readiness, selectedGuild, loading, onConnec
       ? "اختر سيرفراً من صفحة ربط Discord. بعدها نتحقق من وجود البوت وحالة Gateway قبل عرض البيانات."
       : !selectedGuild.botInstalled
         ? "أضف البوت إلى السيرفر أولاً، ثم تحقق من صلاحياته وIntents. سيبقى التشغيل محجوباً حتى تجهز قاعدة البيانات أيضاً."
-        : "السيرفر محدد، لكن البوت غير جاهز حالياً؛ لا توجد إحصاءات أمنية حية لعرضها بعد.";
+        : verifiedReady
+          ? "Gateway وقاعدة البيانات جاهزان. هذه الصفحة تعرض حقائق التشغيل فقط؛ تظهر الأحداث الحية في سجل التدقيق عند تسجيلها."
+          : "السيرفر محدد، لكن البوت غير جاهز حالياً؛ لا توجد إحصاءات أمنية حية لعرضها بعد.";
   const currentDatabaseStatus = databaseStatus(data, readiness);
   const currentGatewayStatus = gatewayStatus(data);
 
@@ -126,7 +129,7 @@ export function LiveOverview({ data, readiness, selectedGuild, loading, onConnec
         <button className="button button-secondary" onClick={onOperations}><Server size={14} />مركز تشغيل البوت</button>
         <button className="button button-secondary" onClick={() => void onRefresh()} disabled={loading}><RefreshCw size={14} />{loading ? "يتم التحديث..." : "تحديث الحالة"}</button>
       </div>
-      <div className="live-overview-disclaimer"><LockKeyhole size={14} /><span>حتى يظهر Gateway كـ«متصل» مع readiness «جاهز»، لا تعتمد على هذا البوت لحماية سيرفر إنتاجي ولا تعلن عنه كخدمة حماية مدفوعة.</span></div>
+      <div className="live-overview-disclaimer"><LockKeyhole size={14} /><span>{verifiedReady ? "جاهزية Gateway والقاعدة لا تثبت وحدها تفعيل كل سياسة حماية. راجع إعدادات السيرفر والصلاحيات وIntents قبل أي إطلاق تجاري." : "حتى يظهر Gateway كـ«متصل» مع readiness «جاهز»، لا تعتمد على هذا البوت لحماية سيرفر إنتاجي ولا تعلن عنه كخدمة حماية مدفوعة."}</span></div>
     </div>
   );
 }
