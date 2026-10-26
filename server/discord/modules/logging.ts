@@ -32,6 +32,13 @@ export const SYSTEMIX_LOG_CHANNELS = {
 } as const;
 
 const LOG_CATEGORY_NAME = "📋・systemix-logs";
+const LOG_BOT_CHANNEL_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.ManageChannels,
+  PermissionFlagsBits.EmbedLinks,
+];
 
 export function loggingEnabled(config: GuildSecurityConfig, feature: LogSwitch, channelId?: string | null): boolean {
   return config.logging.enabled && config.logging[feature] && !(channelId && config.logging.ignoredChannelIds.includes(channelId));
@@ -116,6 +123,16 @@ async function resolveBotMember(guild: Guild): Promise<GuildMember | null> {
   return guild.members.me ?? guild.members.fetchMe().catch(() => null);
 }
 
+async function ensureLogBotPermissions(category: CategoryChannel, botUserId: string): Promise<void> {
+  await category.permissionOverwrites.edit(botUserId, {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+    ManageChannels: true,
+    EmbedLinks: true,
+  }, { reason: "Security Systemix log channel permissions" });
+}
+
 async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const member = interaction.member as GuildMember;
@@ -153,13 +170,14 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
         type: ChannelType.GuildCategory,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: LOG_BOT_CHANNEL_PERMISSIONS },
           ...managerRoleIds.map((id) => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
         ],
         reason: "Security Systemix log setup",
       });
       createdCategory = category;
     }
+    await ensureLogBotPermissions(category, me.id);
 
     const channels = {} as Record<keyof typeof SYSTEMIX_LOG_CHANNELS, TextChannel>;
     for (const [key, name] of Object.entries(SYSTEMIX_LOG_CHANNELS) as Array<[keyof typeof SYSTEMIX_LOG_CHANNELS, string]>) {
@@ -241,7 +259,7 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
       type: ChannelType.GuildCategory,
       permissionOverwrites: [
         { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-        { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+        { id: me.id, allow: LOG_BOT_CHANNEL_PERMISSIONS },
         ...[...guild.roles.cache.values()]
           .filter((role) => !role.managed && (role.permissions.has(PermissionFlagsBits.Administrator) || role.permissions.has(PermissionFlagsBits.ManageGuild)))
           .slice(0, 20)
@@ -250,6 +268,7 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
       reason: "Security Systemix owner log setup",
     });
     if (!existingCategory) createdCategory = category;
+    await ensureLogBotPermissions(category, me.id);
 
     const channels = {} as Record<keyof typeof SYSTEMIX_LOG_CHANNELS, TextChannel>;
     for (const [key, name] of Object.entries(SYSTEMIX_LOG_CHANNELS) as Array<[keyof typeof SYSTEMIX_LOG_CHANNELS, string]>) {

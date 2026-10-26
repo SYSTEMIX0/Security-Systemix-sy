@@ -48,6 +48,8 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('customId("tickets", "open", topic.id)');
     expect(source).toContain("ACTIVE_TICKETS_CATEGORY_NAME");
     expect(source).toContain("MANAGED_SUPPORT_ROLE_NAME");
+    expect(source).toContain("TICKET_BOT_CHANNEL_PERMISSIONS");
+    expect(source).toContain("PermissionFlagsBits.EmbedLinks");
   });
 
   it("creates a configurable ticket centre and records lifecycle events without ticket text", async () => {

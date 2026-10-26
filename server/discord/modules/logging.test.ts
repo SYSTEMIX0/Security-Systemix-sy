@@ -54,5 +54,8 @@ describe("privacy-conscious logging switches", () => {
     const source = await readFile("server/discord/modules/logging.ts", "utf8");
     expect(source).toContain("guild.members.fetchMe()");
     expect(source).toContain("await resolveBotMember(guild)");
+    expect(source).toContain("LOG_BOT_CHANNEL_PERMISSIONS");
+    expect(source).toContain("PermissionFlagsBits.EmbedLinks");
+    expect(source).toContain("ensureLogBotPermissions(category, me.id)");
   });
 });

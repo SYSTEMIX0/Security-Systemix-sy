@@ -59,6 +59,13 @@ const LEGACY_PANEL_CATEGORY_NAME = "🎫・systemix-tickets";
 export const TICKET_CENTER_CHANNEL_NAME = "🎟️・ticket-center";
 const ACTIVE_TICKETS_CATEGORY_NAME = "🔒・active-tickets";
 const MANAGED_SUPPORT_ROLE_NAME = "Systemix Support • Bot";
+const TICKET_BOT_CHANNEL_PERMISSIONS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.ManageChannels,
+  PermissionFlagsBits.EmbedLinks,
+];
 
 export function ticketPanelChannelName(topicId: string): string {
   return TICKET_PANEL_CHANNELS[topicId] ?? `🎫・${ticketChannelPrefix(topicId)}`;
@@ -371,7 +378,7 @@ async function setupTicketSystem(
         type: ChannelType.GuildCategory,
         permissionOverwrites: [
           { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
           { id: supportRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
         ],
         reason: "Security Systemix private ticket category",
@@ -388,7 +395,7 @@ async function setupTicketSystem(
         parent: panelCategory.id,
         permissionOverwrites: [
           { id: interaction.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
         ],
         reason: "Security Systemix ticket center",
       }) as TextChannel;
@@ -403,7 +410,7 @@ async function setupTicketSystem(
           parent: panelCategory.id,
           permissionOverwrites: [
             { id: interaction.guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
-            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+            { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
           ],
           reason: "Security Systemix ticket panel",
         }) as TextChannel;
@@ -472,7 +479,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
         type: ChannelType.GuildCategory,
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
           { id: supportRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
         ],
         reason: "Security Systemix owner private ticket category",
@@ -491,7 +498,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
         parent: panelCategory.id,
         permissionOverwrites: [
           { id: guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
         ],
         reason: "Security Systemix owner ticket center",
       }) as TextChannel;
@@ -505,7 +512,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
           name: ticketPanelChannelName(topic.id), type: ChannelType.GuildText, parent: panelCategory.id,
           permissionOverwrites: [
             { id: guild.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
-            { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+            { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
           ],
           reason: "Security Systemix owner ticket panel",
         }) as TextChannel;
@@ -574,7 +581,7 @@ async function onComponent(interaction: ComponentInteraction) {
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           { id: member.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
           ...roles.map((role) => ({ id: role.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] })),
-          { id: me.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels] },
+          { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
         ],
       });
       await setTicketChannel(guild.id, ticket.id, channel.id);
