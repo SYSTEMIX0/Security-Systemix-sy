@@ -8,6 +8,7 @@ import { registerModerationApi } from "./api/moderation";
 import { registerOwnerApi } from "./api/owner";
 import { registerSecurityApi } from "./api/security";
 import { getDiscordBotState, getDiscordClient } from "./bot";
+import { registerTicketTranscriptRoutes } from "./transcript-page";
 import {
   discordClientSecret,
   getActiveDiscordSession,
@@ -83,4 +84,5 @@ export function registerDiscordRoutes(app: Express): void {
   registerModerationApi(app);
   registerCommunityApi(app);
   registerOwnerApi(app);
+  registerTicketTranscriptRoutes(app);
 }

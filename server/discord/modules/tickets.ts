@@ -26,12 +26,17 @@ import {
   beginTicketClose,
   cancelTicketReservation,
   claimTicket,
+  clearTicketTranscript,
   createTicket,
   finishTicketClose,
   getTicketByChannel,
+  listOpenTickets,
   restoreTicketAfterCloseFailure,
+  saveTicketTranscript,
   setTicketChannel,
+  type TicketTranscript,
 } from "../store/tickets";
+import { ticketTranscriptUrl } from "../transcript-url";
 
 export function cleanTicketChannelName(name: string): string {
   const value = name.normalize("NFKD").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
@@ -97,7 +102,9 @@ async function respond(interaction: TicketInteraction, content: string): Promise
   }
 }
 
-/** Ticket lifecycle records never contain the private text of a ticket conversation. */
+const TRANSCRIPT_MESSAGE_LIMIT = 500;
+
+/** Ticket lifecycle logs never contain the private text of a ticket conversation. */
 export type TicketLifecycleLogInput = {
   guild: Guild;
   config: GuildSecurityConfig;
@@ -112,6 +119,7 @@ export type TicketLifecycleLogInput = {
   openedAt: Date;
   closedAt?: Date;
   closeReason?: string;
+  transcriptUrl?: string;
 };
 
 function ticketLogTimestamp(date: Date | undefined): string {
@@ -157,6 +165,37 @@ export function ticketLifecycleLogFields(input: TicketLifecycleLogInput): Array<
   ];
 }
 
+/** Captures a bounded close-time snapshot. Attachment names are kept, never attachment URLs. */
+export async function captureTicketTranscript(channel: TextChannel): Promise<TicketTranscript> {
+  const messages: TicketTranscript["messages"] = [];
+  let before: string | undefined;
+  let truncated = false;
+
+  while (messages.length < TRANSCRIPT_MESSAGE_LIMIT) {
+    const remaining = TRANSCRIPT_MESSAGE_LIMIT - messages.length;
+    const page = await channel.messages.fetch({ limit: Math.min(100, remaining), ...(before ? { before } : {}) });
+    if (!page.size) break;
+    const ordered = [...page.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+    messages.push(...ordered.map((message) => ({
+      authorId: message.author.id,
+      authorName: (message.member?.displayName ?? message.author.globalName ?? message.author.username).slice(0, 100),
+      bot: message.author.bot,
+      content: message.content.slice(0, 4_000),
+      attachments: [...message.attachments.values()].map((attachment) => (attachment.name ?? "مرفق").slice(0, 160)).slice(0, 10),
+      createdAt: message.createdAt.toISOString(),
+    })));
+    if (messages.length >= TRANSCRIPT_MESSAGE_LIMIT) {
+      truncated = page.size === 100;
+      break;
+    }
+    const oldest = page.last();
+    if (!oldest || page.size < 100) break;
+    before = oldest.id;
+  }
+
+  return { version: 1, channelName: channel.name.slice(0, 100), exportedAt: new Date().toISOString(), truncated, messages };
+}
+
 /**
  * Logging is non-blocking after ticket state succeeds, so a delivery outage never
  * leaves a customer with a half-created or half-closed ticket.
@@ -197,9 +236,14 @@ async function writeTicketLifecycleLog(input: TicketLifecycleLogInput): Promise<
       tone: input.eventType === "closed" ? "success" : "info",
       fields: ticketLifecycleLogFields(input),
       config: input.config,
-      footer: "سجل التذاكر · لا يُحفظ محتوى المحادثة",
+      footer: input.transcriptUrl ? "سجل التذاكر · Transcript محمي" : "سجل التذاكر · لا يُحفظ محتوى المحادثة",
       thumbnail: botAvatar,
     })],
+    ...(input.eventType === "closed" && input.transcriptUrl ? {
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setLabel("عرض التذكرة").setStyle(ButtonStyle.Link).setURL(input.transcriptUrl),
+      )],
+    } : {}),
     allowedMentions: { parse: [] },
   }).catch((error) => logSafe(`Ticket ${input.eventType} log delivery failed in guild ${input.guild.id}`, error));
 }
@@ -348,6 +392,15 @@ async function ensureTicketBotChannelPermissions(channel: CategoryChannel | Text
     ManageChannels: true,
     EmbedLinks: true,
   }, { reason: "Security Systemix ticket panel permissions" });
+}
+
+/** Explicitly repair the opener overwrite after creation or when returning to an open ticket. */
+async function ensureTicketMemberChannelPermissions(channel: TextChannel, memberId: string): Promise<void> {
+  await channel.permissionOverwrites.edit(memberId, {
+    ViewChannel: true,
+    SendMessages: true,
+    ReadMessageHistory: true,
+  }, { reason: "Security Systemix ticket opener access" });
 }
 
 /** Ticket panels are public read-only entry points; active tickets remain private elsewhere. */
@@ -683,6 +736,15 @@ async function onComponent(interaction: ComponentInteraction) {
     let ticket: Awaited<ReturnType<typeof createTicket>> | undefined;
     let channel: Awaited<ReturnType<typeof guild.channels.create>> | undefined;
     try {
+      const existingTicket = (await listOpenTickets(guild.id, member.id))[0];
+      if (existingTicket) {
+        const existingChannel = existingTicket.channelId ? await guild.channels.fetch(existingTicket.channelId).catch(() => null) : null;
+        if (existingChannel?.type === ChannelType.GuildText) {
+          await ensureTicketMemberChannelPermissions(existingChannel, member.id);
+          return respond(interaction, `لديك تذكرة مفتوحة بالفعل: <#${existingChannel.id}>`);
+        }
+        return respond(interaction, "لديك تذكرة مفتوحة، لكن تعذر الوصول إلى قناتها. تواصل مع فريق الدعم قبل فتح تذكرة جديدة.");
+      }
       ticket = await createTicket({ guildId: guild.id, openerId: member.id, topic: topic.id, maxOpenPerUser: cfg.maxOpenPerUser });
       channel = await guild.channels.create({
         name: cleanTicketChannelName(`${ticketChannelPrefix(topic.id)}-${ticket.ticketNumber}`),
@@ -695,6 +757,7 @@ async function onComponent(interaction: ComponentInteraction) {
           { id: me.id, allow: TICKET_BOT_CHANNEL_PERMISSIONS },
         ],
       });
+      await ensureTicketMemberChannelPermissions(channel, member.id);
       await setTicketChannel(guild.id, ticket.id, channel.id);
       const controls = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId(customId("tickets", "claim", ticket.id)).setLabel("استلام التذكرة").setStyle(ButtonStyle.Primary),
@@ -702,16 +765,18 @@ async function onComponent(interaction: ComponentInteraction) {
       );
       const text = cfg.openMessage.replace(/\{user\}/g, `<@${member.id}>`).slice(0, 1000);
       const ticketCard = new EmbedBuilder()
-        .setTitle(`${topic.emoji || "🎫"} تذكرة #${ticket.ticketNumber} • ${topic.label}`)
+        .setColor(0x89c9ef)
+        .setTitle("🎫 إدارة التذكرة")
         .setDescription(text)
         .addFields(
           { name: "صاحب التذكرة", value: `<@${member.id}>`, inline: true },
-          { name: "القسم", value: topic.label, inline: true },
+          { name: "رقم التذكرة", value: `#${ticket.ticketNumber}`, inline: true },
+          { name: "قسم التذكرة", value: `${topic.emoji || "🎫"} ${topic.label}`, inline: true },
+          { name: "تاريخ التذكرة", value: `<t:${Math.floor(ticket.createdAt.getTime() / 1_000)}:F>`, inline: true },
           { name: "الحالة", value: "بانتظار فريق الدعم", inline: true },
-          { name: "وقت الفتح", value: `<t:${Math.floor(Date.now() / 1000)}:f>`, inline: true },
           { name: "فريق الدعم", value: roles.map((role) => `<@&${role.id}>`).join(" · ").slice(0, 1_000) || "غير محدد", inline: false },
         )
-        .setFooter({ text: `Security Systemix • رقم التذكرة ${ticket.ticketNumber}` })
+        .setFooter({ text: `${guild.name} · Security Systemix` })
         .setTimestamp();
       await channel.send({ content: `<@${member.id}>`, embeds: [ticketCard], components: [controls], allowedMentions: { users: [member.id], roles: [], parse: [] } });
       void writeTicketLifecycleLog({
@@ -762,8 +827,17 @@ async function onComponent(interaction: ComponentInteraction) {
     const closingTicket = await beginTicketClose(guild.id, ticket.id);
     if (!closingTicket) return respond(interaction, "التذكرة قيد الإغلاق أو أُغلقت بالفعل.");
     let channelDeleted = !closingTicket.channelId;
+    let transcriptSaved = false;
+    let transcriptUrl: string | undefined;
     try {
       const ticketChannel = closingTicket.channelId ? await guild.channels.fetch(closingTicket.channelId).catch(() => null) : null;
+      if (cfg.transcriptEnabled) {
+        if (!ticketChannel || ticketChannel.type !== ChannelType.GuildText) throw new Error("ticket_transcript_channel_unavailable");
+        const transcript = await captureTicketTranscript(ticketChannel);
+        await saveTicketTranscript(guild.id, ticket.id, transcript);
+        transcriptSaved = true;
+        transcriptUrl = ticketTranscriptUrl(ticket.id);
+      }
       if (ticketChannel) {
         await ticketChannel.delete("Ticket closed through Security Systemix");
         channelDeleted = true;
@@ -774,12 +848,15 @@ async function onComponent(interaction: ComponentInteraction) {
       void writeTicketLifecycleLog({
         guild, config, eventType: "closed", actorId: member.id, openerId: ticket.openerId,
         ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: closingTicket.channelId, channelDeleted: true,
-        topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason: "إغلاق يدوي من لوحة التذكرة",
+        topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason: "إغلاق يدوي من لوحة التذكرة", transcriptUrl,
       });
-      return respond(interaction, "تم إغلاق التذكرة وحذف قناتها. لا يتم حفظ نصوص الرسائل في هذه النسخة.");
+      return respond(interaction, transcriptUrl
+        ? "تم إغلاق التذكرة وحذف قناتها. أرسل البوت زر «عرض التذكرة» في لوق التذاكر؛ السجل محمي بحساب Discord المصرح."
+        : "تم إغلاق التذكرة وحذف قناتها. حفظ سجل المحادثة غير مفعّل لهذا السيرفر.");
     } catch (error) {
       const previousStatus = ticket.status === "claimed" ? "claimed" : "open";
       if (!channelDeleted) {
+        if (transcriptSaved) await clearTicketTranscript(guild.id, ticket.id).catch((clearError) => logSafe(`Ticket transcript cleanup failed in guild ${guild.id}`, clearError));
         await restoreTicketAfterCloseFailure(guild.id, ticket.id, previousStatus).catch((restoreError) => logSafe(`Ticket close recovery failed in guild ${guild.id}`, restoreError));
       }
       logSafe(`Ticket close failed in guild ${guild.id}`, error);

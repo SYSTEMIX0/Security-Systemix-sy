@@ -205,6 +205,9 @@ export function registerCoreApi(app: Express): void {
     const confirmation = req.get(SETTINGS_CONFIRMATION_HEADER);
     const current = await loadGuildConfig(summary.id);
     const settings = mergeGuildSecurityConfig(current, parsed.data);
+    const transcriptPolicyChanged = typeof parsed.data.tickets?.transcriptEnabled === "boolean"
+      && parsed.data.tickets.transcriptEnabled !== current.tickets.transcriptEnabled;
+    if (transcriptPolicyChanged && !summary.owner) throw new ApiError(403, "transcript_owner_required");
     assertUsableTicketConfiguration(summary.id, settings);
     assertUsableDelegationConfiguration(summary.id, settings);
     const botState = getDiscordBotState();

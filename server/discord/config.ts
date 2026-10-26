@@ -14,6 +14,7 @@ const ids = (max: number) => z.array(snowflakeSchema).max(max);
 const text = (max: number) => z.string().max(max);
 const slug = z.string().regex(/^[a-z0-9_-]{1,24}$/, "Invalid identifier");
 const emoji = z.string().max(64);
+const httpsUrl = z.string().trim().max(2_000).url().refine((value) => value.startsWith("https://"), "URL must use HTTPS");
 const keywordList = z.array(z.string().trim().min(1).max(60)).max(100);
 const domainList = z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9.-]{3,80}$/)).max(50);
 const minutes = (max: number) => z.number().int().min(1).max(max);
@@ -184,6 +185,7 @@ const ticketsSchema = z.object({
   staffRoleIds: ids(10),
   panelChannelId: nid,
   transcriptChannelId: nid,
+  transcriptEnabled: z.boolean(),
   maxOpenPerUser: z.number().int().min(1).max(5),
   panelTitle: text(100),
   panelDescription: text(1_000),
@@ -196,6 +198,7 @@ const welcomeSchema = z.object({
   channelId: nid,
   message: text(1_500),
   useEmbed: z.boolean(),
+  imageUrl: httpsUrl.nullable(),
   autoRoleIds: ids(5),
   dmEnabled: z.boolean(),
   dmMessage: text(1_500),
@@ -459,6 +462,7 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     staffRoleIds: [],
     panelChannelId: null,
     transcriptChannelId: null,
+    transcriptEnabled: false,
     maxOpenPerUser: 1,
     panelTitle: "مركز الدعم",
     panelDescription: "اختر نوع طلبك وسيفتح لك فريق الدعم تذكرة خاصة.",
@@ -479,6 +483,7 @@ export const defaultGuildSecurityConfig: GuildSecurityConfig = {
     channelId: null,
     message: "أهلاً {user} في **{server}**! أنت العضو رقم {count}.",
     useEmbed: true,
+    imageUrl: null,
     autoRoleIds: [],
     dmEnabled: false,
     dmMessage: "مرحباً بك في {server}. اقرأ القوانين واستمتع بوقتك.",

@@ -82,6 +82,7 @@ export function systemixEmbed(options: {
   config?: GuildSecurityConfig | null;
   footer?: string;
   thumbnail?: string | null;
+  image?: string | null;
 }): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(toneColor(options.tone ?? "brand", options.config))
@@ -91,6 +92,7 @@ export function systemixEmbed(options: {
   if (options.description) embed.setDescription(options.description.slice(0, 4096));
   if (options.fields?.length) embed.addFields(options.fields.slice(0, 25).map((field) => ({ ...field, value: field.value.slice(0, 1024) || "—" })));
   if (options.thumbnail) embed.setThumbnail(options.thumbnail);
+  if (options.image) embed.setImage(options.image);
   return embed;
 }
 

@@ -13,6 +13,7 @@ describe("guild security configuration", () => {
     expect(defaultGuildSecurityConfig.antiNuke.enabled).toBe(false);
     expect(defaultGuildSecurityConfig.antiRaid.enabled).toBe(false);
     expect(defaultGuildSecurityConfig.autoMod.enabled).toBe(false);
+    expect(defaultGuildSecurityConfig.tickets.transcriptEnabled).toBe(false);
   });
 
   it("merges a partial section without overwriting unrelated safeguards", () => {
@@ -27,6 +28,12 @@ describe("guild security configuration", () => {
   it("rejects unsupported values rather than silently accepting extra settings", () => {
     expect(guildSecurityPatchSchema.safeParse({ antiNuke: { threshold: 1 } }).success).toBe(false);
     expect(guildSecurityPatchSchema.safeParse({ admin: true }).success).toBe(false);
+  });
+
+  it("accepts only HTTPS URLs for an optional welcome image", () => {
+    expect(guildSecurityPatchSchema.safeParse({ welcome: { imageUrl: "https://cdn.example.com/welcome.png" } }).success).toBe(true);
+    expect(guildSecurityPatchSchema.safeParse({ welcome: { imageUrl: "http://cdn.example.com/welcome.png" } }).success).toBe(false);
+    expect(guildSecurityPatchSchema.safeParse({ welcome: { imageUrl: "javascript:alert(1)" } }).success).toBe(false);
   });
 });
 

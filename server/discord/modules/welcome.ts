@@ -9,17 +9,18 @@ export function renderWelcomeTemplate(template: string, vars: { userId: string; 
     .replace(/\\/g, "\\\\")
     .replace(/([*_`~|])/g, "\\$1")
     .replace(/</g, "‹").replace(/>/g, "›");
-  const content = escaped.replace(/\{(user|server|memberCount)\}/g, (_match, key: string) => {
+  const content = escaped.replace(/\{(user|server|memberCount|count)\}/g, (_match, key: string) => {
     if (key === "user") { mentionsUser = true; return `<@${vars.userId}>`; }
     return key === "server" ? vars.server.slice(0, 100) : String(vars.memberCount);
   }).slice(0, 2000);
   return { content, mentionsUser };
 }
 
-function welcomePayload(member: GuildMember, template: string, useEmbed: boolean): MessageCreateOptions {
+/** An image URL forces an Embed so Discord can render it below the welcome message. */
+export function welcomePayload(member: GuildMember, template: string, useEmbed: boolean, imageUrl: string | null): MessageCreateOptions {
   const rendered = renderWelcomeTemplate(template, { userId: member.id, server: member.guild.name, memberCount: member.guild.memberCount });
   const allowedMentions = rendered.mentionsUser ? { users: [member.id], parse: [] as never[] } : { parse: [] as never[] };
-  if (useEmbed) return { embeds: [systemixEmbed({ description: rendered.content })], allowedMentions };
+  if (useEmbed || imageUrl) return { embeds: [systemixEmbed({ description: rendered.content, image: imageUrl })], allowedMentions };
   return { content: rendered.content, allowedMentions };
 }
 
@@ -33,8 +34,8 @@ async function onMemberAdd(member: GuildMember): Promise<void> {
   const auditSaved = await recordEvent({ guildId: guild.id, eventType: "welcome:member_join", actorId: null, targetId: member.id, severity: "low", details: { memberCount: guild.memberCount } });
   if (!auditSaved) return;
 
-  if (settings.channelId) await sendToChannel(guild, settings.channelId, welcomePayload(member, settings.message, settings.useEmbed));
-  if (settings.dmEnabled) await dmMember(member, welcomePayload(member, settings.dmMessage, false));
+  if (settings.channelId) await sendToChannel(guild, settings.channelId, welcomePayload(member, settings.message, settings.useEmbed, settings.imageUrl));
+  if (settings.dmEnabled) await dmMember(member, welcomePayload(member, settings.dmMessage, false, null));
 
   const me = guild.members.me;
   if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) return;

@@ -93,6 +93,24 @@ describe("ticket safety helpers", () => {
     expect(JSON.stringify(fields)).not.toContain("محتوى المحادثة");
   });
 
+  it("repairs the ticket opener's explicit channel access after creation and on a repeat click", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain("listOpenTickets(guild.id, member.id)");
+    expect(source).toContain("await ensureTicketMemberChannelPermissions(channel, member.id)");
+    expect(source).toContain("await ensureTicketMemberChannelPermissions(existingChannel, member.id)");
+  });
+
+  it("exports a bounded transcript before channel deletion and keeps attachment URLs out of storage", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain("const TRANSCRIPT_MESSAGE_LIMIT = 500");
+    expect(source).toContain("if (cfg.transcriptEnabled)");
+    expect(source).toContain("saveTicketTranscript(guild.id, ticket.id, transcript)");
+    expect(source.indexOf("saveTicketTranscript(guild.id, ticket.id, transcript)")).toBeLessThan(source.indexOf('ticketChannel.delete("Ticket closed through Security Systemix")'));
+    expect(source).toContain("attachment.name ?? \"مرفق\"");
+    expect(source).not.toContain("attachment.url");
+    expect(source).toContain('setLabel("عرض التذكرة").setStyle(ButtonStyle.Link)');
+  });
+
   it("avoids reusing a ticket category hidden from the bot", async () => {
     const source = await readFile("server/discord/modules/tickets.ts", "utf8");
     expect(source).toContain("hasTicketCategoryAccess(channel, member)");

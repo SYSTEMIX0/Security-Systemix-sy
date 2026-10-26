@@ -183,14 +183,32 @@ function getParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+/** OAuth may return only to a specific protected transcript page, never an external URL. */
+export function safeOAuthReturnTo(value: string | undefined): string {
+  return value && /^\/ticket-transcripts\/[1-9]\d*$/.test(value) ? value : "/";
+}
+
+function oauthState(returnTo: string): string {
+  return Buffer.from(JSON.stringify({ nonce: randomBytes(32).toString("base64url"), returnTo }), "utf8").toString("base64url");
+}
+
+function oauthStateReturnTo(state: string): string {
+  try {
+    const value = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as { returnTo?: unknown };
+    return safeOAuthReturnTo(typeof value.returnTo === "string" ? value.returnTo : undefined);
+  } catch {
+    return "/";
+  }
+}
+
 export function registerDiscordOAuthRoutes(app: Express): void {
-  app.get("/api/discord/login", (_req: Request, res: ExpressResponse) => {
+  app.get("/api/discord/login", (req: Request, res: ExpressResponse) => {
     res.set("Cache-Control", "no-store");
     if (!discordClientSecret()) {
       res.status(503).json({ error: "discord_oauth_not_configured" });
       return;
     }
-    const state = randomBytes(32).toString("base64url");
+    const state = oauthState(safeOAuthReturnTo(getParam(req, "returnTo")));
     setOAuthStateCookie(res, state);
     const params = new URLSearchParams({
       client_id: discordClientId(),
@@ -236,7 +254,7 @@ export function registerDiscordOAuthRoutes(app: Express): void {
         user: { id: identity.id, username: identity.username, avatar: identity.avatar },
       };
       setDiscordSessionCookie(res, session);
-      res.redirect(302, "/");
+      res.redirect(302, oauthStateReturnTo(state));
     } catch (error) {
       const status = error instanceof DiscordHttpError ? error.status : 502;
       res.status(status >= 500 ? 502 : status).send("تعذر إكمال ربط Discord. تحقق من إعداد OAuth ثم أعد المحاولة.");

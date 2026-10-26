@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { discordClientId, discordRedirectUri } from "./oauth";
+import { discordClientId, discordRedirectUri, safeOAuthReturnTo } from "./oauth";
 
 describe("Discord OAuth redirect URI", () => {
   const originalRedirect = process.env.DISCORD_REDIRECT_URI;
@@ -40,5 +40,12 @@ describe("Discord OAuth redirect URI", () => {
     process.env.SYSTEMIX_ALLOW_LOCAL_HTTP_REDIRECT = "false";
     process.env.DISCORD_REDIRECT_URI = "http://127.0.0.1:3000/api/discord/callback";
     expect(discordRedirectUri()).toBe("https://security-systemix-sy.onrender.com/api/discord/callback");
+  });
+
+  it("allows OAuth to return only to a protected ticket transcript path", () => {
+    expect(safeOAuthReturnTo("/ticket-transcripts/42")).toBe("/ticket-transcripts/42");
+    expect(safeOAuthReturnTo("https://evil.example")).toBe("/");
+    expect(safeOAuthReturnTo("//evil.example")).toBe("/");
+    expect(safeOAuthReturnTo("/ticket-transcripts/42?next=evil")).toBe("/");
   });
 });

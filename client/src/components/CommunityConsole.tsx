@@ -15,6 +15,7 @@ function errorMessage(error: unknown): string {
   if (error instanceof DiscordApiError && error.code === "ticket_bot_not_installed") return "ثبّت البوت في هذا السيرفر وشغّله قبل تفعيل نظام التذاكر.";
   if (error instanceof DiscordApiError && error.code === "ticket_category_or_panel_required") return "لتفعيل التذاكر اختر فئة التذاكر وقناة اللوحة النصية أولاً.";
   if (error instanceof DiscordApiError && (error.code === "ticket_staff_role_required" || error.code === "ticket_staff_role_invalid")) return "لتفعيل التذاكر اختر رتبة دعم حقيقية وقابلة للاستخدام، ولا تستخدم رتبة @everyone أو رتبة تطبيق مُدارة.";
+  if (error instanceof DiscordApiError && error.code === "transcript_owner_required") return "حفظ سجل محادثات التذاكر يغير سياسة خصوصية السيرفر؛ لا يستطيع تفعيله أو إيقافه إلا مالك السيرفر في Discord.";
   if (error instanceof DiscordApiError && error.code === "subscription_lookup_unavailable") return "تعذّر فحص اشتراك هذا السيرفر من قاعدة البيانات؛ لم نعرض إعدادات قديمة أو ننفّذ أي تغيير.";
   if (error instanceof DiscordApiError && error.code === "discord_session_expired") return "انتهت جلسة Discord. أعد ربط حسابك من صفحة «ربط Discord» ثم حدّث هذه الصفحة.";
   if (error instanceof DiscordApiError && (error.code === "discord_api_unavailable" || error.code === "discord_rate_limited")) return "Discord غير متاح مؤقتاً أو طلباتك محدودة. انتظر دقيقة ثم أعد المحاولة.";
@@ -140,6 +141,8 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
           <TextField label="عنوان اللوحة" value={draft.tickets.panelTitle} maxLength={100} onChange={(value) => updateSection("tickets", { panelTitle: value })} />
           <TextField label="وصف اللوحة" value={draft.tickets.panelDescription} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { panelDescription: value })} />
           <TextField label="رسالة فتح التذكرة — يدعم {user}" value={draft.tickets.openMessage} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { openMessage: value })} />
+          <SwitchRow label="حفظ سجل المحادثة بعد الإغلاق" checked={draft.tickets.transcriptEnabled} onChange={(checked) => updateSection("tickets", { transcriptEnabled: checked })} />
+          {draft.tickets.transcriptEnabled && <p className="pc-hint">سيحفظ البوت نصوص رسائل التذكرة وروابط المرفقات عند إغلاقها، ثم يضع زر «عرض التذكرة» في لوق الإغلاق. لا تُفعّل هذا الخيار إلا إذا كانت سياسة سيرفرك تسمح بذلك.</p>}
           <TicketTopicsEditor topics={draft.tickets.topics} onUpdate={updateTicketTopic} onAdd={addTicketTopic} onRemove={removeTicketTopic} />
           <p className="pc-hint">هذه الأقسام تظهر في قائمة <bdi dir="ltr">🎟️・ticket-center</bdi>. غيّر الاسم والوصف والرمز كما تريد، ثم احفظ ونفّذ <bdi dir="ltr">/systemix-tickets panel</bdi> لتحديث اللوحة. لا تحذف كل الأقسام؛ يجب أن يبقى قسم واحد على الأقل.</p>
         </article>
@@ -156,6 +159,8 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
           <ChannelSelect label="قناة الترحيب" value={draft.welcome.channelId} channels={textChannels} onChange={(value) => updateSection("welcome", { channelId: value })} />
           <TextField label="رسالة الترحيب — {user} و{server} و{count}" value={draft.welcome.message} maxLength={1_500} multiline onChange={(value) => updateSection("welcome", { message: value })} />
           <SwitchRow label="استخدام Embed" checked={draft.welcome.useEmbed} onChange={(checked) => updateSection("welcome", { useEmbed: checked })} />
+          <label className="pc-field"><span>رابط صورة الترحيب (اختياري)</span><input dir="ltr" type="url" maxLength={2_000} value={draft.welcome.imageUrl ?? ""} placeholder="https://example.com/welcome.png" onChange={(event) => updateSection("welcome", { imageUrl: event.currentTarget.value.trim() || null })} /></label>
+          <p className="pc-hint">ضع رابط صورة مباشر يبدأ بـ <bdi dir="ltr">https://</bdi>. عند وجود صورة، يرسل البوت الترحيب داخل Embed تلقائياً لتظهر الصورة بشكل كامل. لا تستخدم رابط صفحة أو رابطاً خاصاً ينتهي سريعاً.</p>
           <SwitchRow label="رسالة خاصة للعضو" checked={draft.welcome.dmEnabled} onChange={(checked) => updateSection("welcome", { dmEnabled: checked })} />
           {draft.welcome.dmEnabled && <TextField label="نص الرسالة الخاصة" value={draft.welcome.dmMessage} maxLength={1_500} multiline onChange={(value) => updateSection("welcome", { dmMessage: value })} />}
           <SwitchRow label="رسالة مغادرة" checked={draft.welcome.goodbyeEnabled} onChange={(checked) => updateSection("welcome", { goodbyeEnabled: checked })} />

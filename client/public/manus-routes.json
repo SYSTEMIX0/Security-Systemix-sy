@@ -1,1 +1,1 @@
-{"routes":[{"path":"/","title":"لوحة Security Systemix"},{"path":"/owner","title":"لوحة الملاك"}]}
+{"routes":[{"path":"/","title":"لوحة Security Systemix"},{"path":"/owner","title":"لوحة الملاك"},{"path":"/ticket-transcripts/:ticketId","title":"سجل تذكرة محمي"}]}

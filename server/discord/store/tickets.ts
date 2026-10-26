@@ -15,6 +15,22 @@ export class TicketLimitReachedError extends Error {
 
 export type TicketClaimResult = "claimed" | "already_claimed" | "unavailable";
 
+/** A bounded snapshot made only at close time when the guild owner has enabled it. */
+export type TicketTranscript = {
+  version: 1;
+  channelName: string;
+  exportedAt: string;
+  truncated: boolean;
+  messages: Array<{
+    authorId: string;
+    authorName: string;
+    bot: boolean;
+    content: string;
+    attachments: string[];
+    createdAt: string;
+  }>;
+};
+
 /**
  * Reserves both a sequential ticket number and one of the member's active-ticket
  * slots in the same MySQL transaction. The per-guild sequence row serializes
@@ -49,7 +65,7 @@ export async function createTicket(input: NewTicket): Promise<TicketRow> {
       openerId: input.openerId,
       topic: input.topic,
       ticketNumber,
-      transcript: "",
+      transcript: null,
       messageCount: 0,
       status: "open",
     });
@@ -75,6 +91,29 @@ export async function getTicketByChannel(guildId: string, channelId: string): Pr
   const [row] = await db.select().from(tickets)
     .where(and(eq(tickets.guildId, guildId), eq(tickets.channelId, channelId))).limit(1);
   return row;
+}
+
+export async function getTicketById(id: number): Promise<TicketRow | undefined> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const [row] = await db.select().from(tickets).where(eq(tickets.id, id)).limit(1);
+  return row;
+}
+
+/** Stores the bounded transcript before deleting the Discord channel. */
+export async function saveTicketTranscript(guildId: string, id: number, transcript: TicketTranscript): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(tickets).set({ transcript: JSON.stringify(transcript), messageCount: transcript.messages.length })
+    .where(and(eq(tickets.guildId, guildId), eq(tickets.id, id), eq(tickets.status, "closing")));
+}
+
+/** A failed channel deletion must not leave an early copy of an open conversation in storage. */
+export async function clearTicketTranscript(guildId: string, id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  await db.update(tickets).set({ transcript: null, messageCount: 0 })
+    .where(and(eq(tickets.guildId, guildId), eq(tickets.id, id), eq(tickets.status, "closing")));
 }
 
 export async function setTicketChannel(guildId: string, id: number, channelId: string): Promise<void> {
