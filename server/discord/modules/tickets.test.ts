@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { ChannelType } from "discord.js";
 import { describe, expect, it } from "vitest";
-import { canManageTicket, cleanTicketChannelName, findConfiguredActiveTicketCategory, findConfiguredTicketPanelCategory, isUsableTicketSupportRole, ticketChannelPrefix, ticketPanelChannelName } from "./tickets";
+import { canManageTicket, cleanTicketChannelName, findConfiguredActiveTicketCategory, findConfiguredTicketPanelCategory, isUsableTicketSupportRole, ticketChannelPrefix, ticketLifecycleLogFields, ticketPanelChannelName } from "./tickets";
 import { defaultGuildSecurityConfig } from "../config";
 
 describe("ticket safety helpers", () => {
@@ -65,6 +65,32 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('eventType: "claimed"');
     expect(source).toContain('eventType: "closed"');
     expect(source).toContain('customId("tickets", "closeconfirm", ticket.id)');
+  });
+
+  it("formats a complete Arabic closing card without retaining ticket conversation text", () => {
+    const fields = ticketLifecycleLogFields({
+      guild: {} as never,
+      config: defaultGuildSecurityConfig,
+      eventType: "closed",
+      actorId: "closer-id",
+      openerId: "opener-id",
+      ticketId: 99,
+      ticketNumber: 12,
+      channelId: "channel-id",
+      channelDeleted: true,
+      topic: "technical-support",
+      openedAt: new Date("2026-10-26T10:00:00.000Z"),
+      closedAt: new Date("2026-10-26T10:30:00.000Z"),
+      closeReason: "انتهاء الطلب",
+    });
+    expect(fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "رقم التذكرة", value: "#12" }),
+      expect.objectContaining({ name: "صاحب التذكرة", value: "<@opener-id>" }),
+      expect.objectContaining({ name: "أُغلقت بواسطة", value: "<@closer-id>" }),
+      expect.objectContaining({ name: "سبب الإغلاق", value: "انتهاء الطلب" }),
+      expect.objectContaining({ name: "القناة", value: expect.stringContaining("حُذفت بعد الإغلاق") }),
+    ]));
+    expect(JSON.stringify(fields)).not.toContain("محتوى المحادثة");
   });
 
   it("avoids reusing a ticket category hidden from the bot", async () => {

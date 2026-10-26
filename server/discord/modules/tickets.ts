@@ -97,23 +97,71 @@ async function respond(interaction: TicketInteraction, content: string): Promise
   }
 }
 
-/**
- * Ticket lifecycle records deliberately contain identifiers and state only. Ticket
- * message content never enters the database or the dedicated ticket-log channel.
- * Logging is non-blocking after ticket state succeeds, so a delivery outage never
- * leaves a customer with a half-created or half-closed ticket.
- */
-async function writeTicketLifecycleLog(input: {
+/** Ticket lifecycle records never contain the private text of a ticket conversation. */
+export type TicketLifecycleLogInput = {
   guild: Guild;
   config: GuildSecurityConfig;
   eventType: "opened" | "claimed" | "closed";
   actorId: string;
   openerId: string;
   ticketId: number;
+  ticketNumber: number;
   channelId: string | null;
   channelDeleted?: boolean;
   topic?: string;
-}): Promise<void> {
+  openedAt: Date;
+  closedAt?: Date;
+  closeReason?: string;
+};
+
+function ticketLogTimestamp(date: Date | undefined): string {
+  if (!date || Number.isNaN(date.getTime())) return "غير متاح";
+  return `<t:${Math.floor(date.getTime() / 1_000)}:F>`;
+}
+
+function ticketLogTopic(input: TicketLifecycleLogInput): string {
+  return input.config.tickets.topics.find((topic) => topic.id === input.topic)?.label
+    ?? input.topic
+    ?? "غير محدد";
+}
+
+/** Builds a readable Arabic summary without retaining any ticket message text. */
+export function ticketLifecycleLogFields(input: TicketLifecycleLogInput): Array<{ name: string; value: string; inline: boolean }> {
+  const channel = input.channelId
+    ? input.channelDeleted ? `\`${input.channelId}\`\nحُذفت بعد الإغلاق` : `<#${input.channelId}>`
+    : "غير متاحة";
+  const identity = (id: string) => `<@${id}>`;
+  const ticketNumber = `#${input.ticketNumber}`;
+  const topic = ticketLogTopic(input);
+
+  if (input.eventType === "closed") {
+    return [
+      { name: "رقم التذكرة", value: ticketNumber, inline: true },
+      { name: "نوع التذكرة", value: topic, inline: true },
+      { name: "صاحب التذكرة", value: identity(input.openerId), inline: true },
+      { name: "أُغلقت بواسطة", value: identity(input.actorId), inline: true },
+      { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
+      { name: "وقت الإغلاق", value: ticketLogTimestamp(input.closedAt), inline: true },
+      { name: "سبب الإغلاق", value: input.closeReason ?? "إغلاق يدوي", inline: false },
+      { name: "القناة", value: channel, inline: false },
+    ];
+  }
+
+  return [
+    { name: "رقم التذكرة", value: ticketNumber, inline: true },
+    { name: "نوع التذكرة", value: topic, inline: true },
+    { name: input.eventType === "opened" ? "فُتحت بواسطة" : "استلمها", value: identity(input.actorId), inline: true },
+    { name: "صاحب التذكرة", value: identity(input.openerId), inline: true },
+    { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
+    { name: "القناة", value: channel, inline: true },
+  ];
+}
+
+/**
+ * Logging is non-blocking after ticket state succeeds, so a delivery outage never
+ * leaves a customer with a half-created or half-closed ticket.
+ */
+async function writeTicketLifecycleLog(input: TicketLifecycleLogInput): Promise<void> {
   if (!loggingEnabled(input.config, "ticketEvents")) return;
   try {
     await recordSecurityEvent({
@@ -124,9 +172,13 @@ async function writeTicketLifecycleLog(input: {
       severity: "low",
       details: {
         ticketId: input.ticketId,
+        ticketNumber: input.ticketNumber,
         channelId: input.channelId,
         openerId: input.openerId,
         topic: input.topic ?? null,
+        openedAt: input.openedAt.toISOString(),
+        closedAt: input.closedAt?.toISOString() ?? null,
+        closeReason: input.closeReason ?? null,
       },
     });
   } catch (error) {
@@ -136,16 +188,18 @@ async function writeTicketLifecycleLog(input: {
 
   const destination = loggingDestination(input.config, "ticketEvents");
   if (!destination) return;
-  const eventNames = { opened: "فُتحت تذكرة", claimed: "استُلِمت تذكرة", closed: "أُغلقت تذكرة" } as const;
-  const fields = [
-    { name: "رقم التذكرة", value: `\`${input.ticketId}\``, inline: true },
-    { name: "صاحب التذكرة", value: `\`${input.openerId}\``, inline: true },
-    { name: "المنفذ", value: `\`${input.actorId}\``, inline: true },
-    { name: "القناة", value: input.channelId ? `${input.channelDeleted ? "حُذفت · " : ""}\`${input.channelId}\`` : "غير متاحة", inline: true },
-  ];
-  if (input.topic) fields.push({ name: "النوع", value: input.topic, inline: true });
+  const eventNames = { opened: "🎫 تم فتح تذكرة", claimed: "🤝 تم استلام التذكرة", closed: "🔒 تم إغلاق التذكرة" } as const;
+  const botAvatar = input.guild.client.user?.displayAvatarURL() ?? null;
   await sendSecurityAlert(input.guild, input.config, destination, {
-    embeds: [systemixEmbed({ title: eventNames[input.eventType], tone: "info", fields, config: input.config })],
+    embeds: [systemixEmbed({
+      title: eventNames[input.eventType],
+      description: input.eventType === "closed" ? "أُغلقت التذكرة بنجاح وسُجلت تفاصيلها أدناه." : "سُجلت عملية التذكرة في Systemix.",
+      tone: input.eventType === "closed" ? "success" : "info",
+      fields: ticketLifecycleLogFields(input),
+      config: input.config,
+      footer: "سجل التذاكر · لا يُحفظ محتوى المحادثة",
+      thumbnail: botAvatar,
+    })],
     allowedMentions: { parse: [] },
   }).catch((error) => logSafe(`Ticket ${input.eventType} log delivery failed in guild ${input.guild.id}`, error));
 }
@@ -662,7 +716,8 @@ async function onComponent(interaction: ComponentInteraction) {
       await channel.send({ content: `<@${member.id}>`, embeds: [ticketCard], components: [controls], allowedMentions: { users: [member.id], roles: [], parse: [] } });
       void writeTicketLifecycleLog({
         guild, config, eventType: "opened", actorId: member.id, openerId: member.id,
-        ticketId: ticket.id, channelId: channel.id, topic: topic.label,
+        ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: channel.id, topic: topic.label,
+        openedAt: ticket.createdAt,
       });
       return respond(interaction, `تم فتح تذكرتك: <#${channel.id}>`);
     } catch (error) {
@@ -685,7 +740,8 @@ async function onComponent(interaction: ComponentInteraction) {
       if (claimed === "claimed") {
         void writeTicketLifecycleLog({
           guild, config, eventType: "claimed", actorId: member.id, openerId: ticket.openerId,
-          ticketId: ticket.id, channelId: ticket.channelId, topic: ticket.topic,
+          ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: ticket.channelId, topic: ticket.topic,
+          openedAt: ticket.createdAt,
         });
         return respond(interaction, "تم استلام التذكرة.");
       }
@@ -712,11 +768,13 @@ async function onComponent(interaction: ComponentInteraction) {
         await ticketChannel.delete("Ticket closed through Security Systemix");
         channelDeleted = true;
       }
-      const finalized = await finishTicketClose(guild.id, ticket.id, member.id);
+      const closedAt = new Date();
+      const finalized = await finishTicketClose(guild.id, ticket.id, member.id, closedAt);
       if (!finalized) throw new Error("ticket_close_finalize_failed");
       void writeTicketLifecycleLog({
         guild, config, eventType: "closed", actorId: member.id, openerId: ticket.openerId,
-        ticketId: ticket.id, channelId: closingTicket.channelId, channelDeleted: true, topic: ticket.topic,
+        ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: closingTicket.channelId, channelDeleted: true,
+        topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason: "إغلاق يدوي من لوحة التذكرة",
       });
       return respond(interaction, "تم إغلاق التذكرة وحذف قناتها. لا يتم حفظ نصوص الرسائل في هذه النسخة.");
     } catch (error) {
