@@ -50,7 +50,8 @@ describe("ticket safety helpers", () => {
     expect(source).toContain("MANAGED_SUPPORT_ROLE_NAME");
     expect(source).toContain("TICKET_BOT_CHANNEL_PERMISSIONS");
     expect(source).toContain("PermissionFlagsBits.EmbedLinks");
-    expect(source).toContain("ensureTicketBotChannelPermissions(center, me.id)");
+    expect(source).toContain("ensurePublicTicketPanelPermissions(center, guild.id, me.id)");
+    expect(source).toContain("SendMessages: false");
   });
 
   it("creates a configurable ticket centre and records lifecycle events without ticket text", async () => {

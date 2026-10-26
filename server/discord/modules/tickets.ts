@@ -273,6 +273,16 @@ async function ensureTicketBotChannelPermissions(channel: CategoryChannel | Text
   }, { reason: "Security Systemix ticket panel permissions" });
 }
 
+/** Ticket panels are public read-only entry points; active tickets remain private elsewhere. */
+async function ensurePublicTicketPanelPermissions(channel: TextChannel, guildId: string, botUserId: string): Promise<void> {
+  await ensureTicketBotChannelPermissions(channel, botUserId);
+  await channel.permissionOverwrites.edit(guildId, {
+    ViewChannel: true,
+    ReadMessageHistory: true,
+    SendMessages: false,
+  }, { reason: "Security Systemix public ticket panel permissions" });
+}
+
 function containsTicketTrigger(message: Pick<Message<true>, "components">): boolean {
   return message.components.some((row) => "components" in row
     && Array.isArray(row.components)
@@ -413,7 +423,7 @@ async function setupTicketSystem(
       }) as TextChannel;
       createdPanels.push(center);
     }
-    await ensureTicketBotChannelPermissions(center, me.id);
+    await ensurePublicTicketPanelPermissions(center, interaction.guild.id, me.id);
     for (const topic of setupTopics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
       let panel = findTextChannel(interaction.guild, panelCategory.id, ticketPanelChannelName(topic.id));
       if (!panel) {
@@ -429,7 +439,7 @@ async function setupTicketSystem(
         }) as TextChannel;
         createdPanels.push(panel);
       }
-      await ensureTicketBotChannelPermissions(panel, me.id);
+      await ensurePublicTicketPanelPermissions(panel, interaction.guild.id, me.id);
     }
 
     const next = mergeGuildSecurityConfig(config, {
@@ -521,7 +531,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
       createdPanels.push(center);
     }
     stage = "ticket_center_permissions";
-    await ensureTicketBotChannelPermissions(center, me.id);
+    await ensurePublicTicketPanelPermissions(center, guild.id, me.id);
     stage = "topic_panels";
     for (const topic of setupTopics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
       let panel = findTextChannel(guild, panelCategory.id, ticketPanelChannelName(topic.id));
@@ -537,7 +547,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
         createdPanels.push(panel);
       }
       stage = "topic_panel_permissions";
-      await ensureTicketBotChannelPermissions(panel, me.id);
+      await ensurePublicTicketPanelPermissions(panel, guild.id, me.id);
     }
     const next = mergeGuildSecurityConfig(config, {
       tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: center.id, staffRoleIds: [supportRole.id], topics: setupTopics },
