@@ -67,7 +67,7 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('customId("tickets", "closeconfirm", ticket.id)');
   });
 
-  it("formats a complete Arabic closing card without retaining ticket conversation text", () => {
+  it("formats a spacious Arabic closing card without retaining ticket conversation text", () => {
     const fields = ticketLifecycleLogFields({
       guild: {} as never,
       config: defaultGuildSecurityConfig,
@@ -84,12 +84,14 @@ describe("ticket safety helpers", () => {
       closeReason: "انتهاء الطلب",
     });
     expect(fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "رقم التذكرة", value: "#12" }),
-      expect.objectContaining({ name: "صاحب التذكرة", value: "<@opener-id>" }),
-      expect.objectContaining({ name: "أُغلقت بواسطة", value: "<@closer-id>" }),
-      expect.objectContaining({ name: "سبب الإغلاق", value: "انتهاء الطلب" }),
-      expect.objectContaining({ name: "القناة", value: expect.stringContaining("حُذفت بعد الإغلاق") }),
+      expect.objectContaining({ name: "🎫 ملخص التذكرة", value: expect.stringContaining("#12"), inline: false }),
+      expect.objectContaining({ name: "👥 أطراف التذكرة", value: expect.stringContaining("<@opener-id>"), inline: false }),
+      expect.objectContaining({ name: "👥 أطراف التذكرة", value: expect.stringContaining("<@closer-id>"), inline: false }),
+      expect.objectContaining({ name: "📌 سبب الإغلاق", value: "انتهاء الطلب" }),
+      expect.objectContaining({ name: "🗃️ حالة القناة", value: "حُذفت قناة التذكرة بعد إتمام الإغلاق.", inline: false }),
     ]));
+    expect(fields.every((field) => field.inline === false)).toBe(true);
+    expect(JSON.stringify(fields)).not.toContain("channel-id");
     expect(JSON.stringify(fields)).not.toContain("محتوى المحادثة");
   });
 

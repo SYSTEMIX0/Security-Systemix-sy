@@ -136,32 +136,28 @@ function ticketLogTopic(input: TicketLifecycleLogInput): string {
 /** Builds a readable Arabic summary without retaining any ticket message text. */
 export function ticketLifecycleLogFields(input: TicketLifecycleLogInput): Array<{ name: string; value: string; inline: boolean }> {
   const channel = input.channelId
-    ? input.channelDeleted ? `\`${input.channelId}\`\nحُذفت بعد الإغلاق` : `<#${input.channelId}>`
+    ? input.channelDeleted ? "حُذفت قناة التذكرة بعد إتمام الإغلاق." : `<#${input.channelId}>`
     : "غير متاحة";
   const identity = (id: string) => `<@${id}>`;
   const ticketNumber = `#${input.ticketNumber}`;
   const topic = ticketLogTopic(input);
+  const details = `**رقم التذكرة:** ${ticketNumber}\n**القسم:** ${topic}`;
 
   if (input.eventType === "closed") {
     return [
-      { name: "رقم التذكرة", value: ticketNumber, inline: true },
-      { name: "نوع التذكرة", value: topic, inline: true },
-      { name: "صاحب التذكرة", value: identity(input.openerId), inline: true },
-      { name: "أُغلقت بواسطة", value: identity(input.actorId), inline: true },
-      { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
-      { name: "وقت الإغلاق", value: ticketLogTimestamp(input.closedAt), inline: true },
-      { name: "سبب الإغلاق", value: input.closeReason ?? "إغلاق يدوي", inline: false },
-      { name: "القناة", value: channel, inline: false },
+      { name: "🎫 ملخص التذكرة", value: details, inline: false },
+      { name: "👥 أطراف التذكرة", value: `**صاحب التذكرة:** ${identity(input.openerId)}\n**أدار الإغلاق:** ${identity(input.actorId)}`, inline: false },
+      { name: "🕓 التسلسل الزمني", value: `**فُتحت:** ${ticketLogTimestamp(input.openedAt)}\n**أُغلقت:** ${ticketLogTimestamp(input.closedAt)}`, inline: false },
+      { name: "📌 سبب الإغلاق", value: input.closeReason ?? "إغلاق يدوي", inline: false },
+      { name: "🗃️ حالة القناة", value: channel, inline: false },
     ];
   }
 
   return [
-    { name: "رقم التذكرة", value: ticketNumber, inline: true },
-    { name: "نوع التذكرة", value: topic, inline: true },
-    { name: input.eventType === "opened" ? "فُتحت بواسطة" : "استلمها", value: identity(input.actorId), inline: true },
-    { name: "صاحب التذكرة", value: identity(input.openerId), inline: true },
-    { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
-    { name: "القناة", value: channel, inline: true },
+    { name: "🎫 ملخص التذكرة", value: details, inline: false },
+    { name: "👥 أطراف التذكرة", value: `**صاحب التذكرة:** ${identity(input.openerId)}\n**${input.eventType === "opened" ? "فُتحت بواسطة" : "استلمها"}:** ${identity(input.actorId)}`, inline: false },
+    { name: "🕓 وقت فتح التذكرة", value: ticketLogTimestamp(input.openedAt), inline: false },
+    { name: "📂 قناة التذكرة", value: channel, inline: false },
   ];
 }
 
@@ -227,12 +223,23 @@ async function writeTicketLifecycleLog(input: TicketLifecycleLogInput): Promise<
 
   const destination = loggingDestination(input.config, "ticketEvents");
   if (!destination) return;
-  const eventNames = { opened: "🎫 تم فتح تذكرة", claimed: "🤝 تم استلام التذكرة", closed: "🔒 تم إغلاق التذكرة" } as const;
+  const eventNames = {
+    opened: `🎫 تذكرة جديدة · #${input.ticketNumber}`,
+    claimed: `🤝 تم استلام التذكرة · #${input.ticketNumber}`,
+    closed: `🔒 أُغلقت التذكرة · #${input.ticketNumber}`,
+  } as const;
+  const eventDescriptions = {
+    opened: "بدأت رحلة دعم جديدة. كل التفاصيل موثقة بشكل منظم أدناه.",
+    claimed: "تسلّمها أحد أعضاء الدعم؛ ستظل كل خطواتها موثقة هنا.",
+    closed: input.transcriptUrl
+      ? "اكتمل الإغلاق. استخدم زر **عرض التذكرة** أسفل البطاقة لفتح السجل المحمي."
+      : "اكتمل الإغلاق. يبقى هذا اللوق ملخصاً للحدث ولا يعرض محتوى المحادثة.",
+  } as const;
   const botAvatar = input.guild.client.user?.displayAvatarURL() ?? null;
   await sendSecurityAlert(input.guild, input.config, destination, {
     embeds: [systemixEmbed({
       title: eventNames[input.eventType],
-      description: input.eventType === "closed" ? "أُغلقت التذكرة بنجاح وسُجلت تفاصيلها أدناه." : "سُجلت عملية التذكرة في Systemix.",
+      description: eventDescriptions[input.eventType],
       tone: input.eventType === "closed" ? "success" : "info",
       fields: ticketLifecycleLogFields(input),
       config: input.config,
