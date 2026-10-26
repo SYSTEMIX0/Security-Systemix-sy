@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
+import { ChannelType } from "discord.js";
 import { describe, expect, it } from "vitest";
-import { canManageTicket, cleanTicketChannelName, isUsableTicketSupportRole, ticketChannelPrefix, ticketPanelChannelName } from "./tickets";
+import { canManageTicket, cleanTicketChannelName, findConfiguredActiveTicketCategory, findConfiguredTicketPanelCategory, isUsableTicketSupportRole, ticketChannelPrefix, ticketPanelChannelName } from "./tickets";
+import { defaultGuildSecurityConfig } from "../config";
 
 describe("ticket safety helpers", () => {
   it("only lets opener or staff close a ticket", () => {
@@ -69,6 +71,19 @@ describe("ticket safety helpers", () => {
     const source = await readFile("server/discord/modules/tickets.ts", "utf8");
     expect(source).toContain("hasTicketCategoryAccess(channel, member)");
     expect(source).toContain("PermissionFlagsBits.ViewChannel");
+  });
+
+  it("prefers the configured panel and active categories even after they are renamed", () => {
+    const panelCategory = { id: "saved-panel-category", type: ChannelType.GuildCategory, permissionsFor: () => ({ has: () => true }) };
+    const activeCategory = { id: "saved-active-category", type: ChannelType.GuildCategory, permissionsFor: () => ({ has: () => true }) };
+    const center = { id: "saved-center", parentId: panelCategory.id };
+    const guild = { channels: { cache: new Map([[panelCategory.id, panelCategory], [activeCategory.id, activeCategory], [center.id, center]]) } } as never;
+    const config = {
+      ...defaultGuildSecurityConfig,
+      tickets: { ...defaultGuildSecurityConfig.tickets, panelChannelId: center.id, categoryId: activeCategory.id },
+    };
+    expect(findConfiguredTicketPanelCategory(guild, {} as never, config)).toBe(panelCategory);
+    expect(findConfiguredActiveTicketCategory(guild, {} as never, config)).toBe(activeCategory);
   });
 
   it("fetches the bot member after a fresh invite when the Gateway member cache is empty", async () => {

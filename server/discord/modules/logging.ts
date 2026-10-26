@@ -104,7 +104,30 @@ function hasCategorySetupAccess(category: CategoryChannel, member: GuildMember |
   ]));
 }
 
-function findLogCategory(guild: Guild, member: GuildMember | null): CategoryChannel | null {
+/** Prefer the category already linked by a saved logging channel over a same-named category. */
+export function findConfiguredLogCategory(guild: Guild, member: GuildMember | null, config: GuildSecurityConfig): CategoryChannel | null {
+  const linkedChannelIds = [
+    config.logging.memberChannelId,
+    config.logging.messageChannelId,
+    config.logging.securityChannelId,
+    config.logging.voiceChannelId,
+    config.logging.ticketChannelId,
+    config.logging.channelId,
+    config.general.securityLogChannelId,
+  ];
+  for (const channelId of linkedChannelIds) {
+    if (!channelId) continue;
+    const linkedChannel = guild.channels.cache.get(channelId);
+    if (!linkedChannel?.parentId) continue;
+    const parent = guild.channels.cache.get(linkedChannel.parentId);
+    if (parent?.type === ChannelType.GuildCategory && hasCategorySetupAccess(parent, member)) return parent;
+  }
+  return null;
+}
+
+function findLogCategory(guild: Guild, member: GuildMember | null, config: GuildSecurityConfig): CategoryChannel | null {
+  const configuredCategory = findConfiguredLogCategory(guild, member, config);
+  if (configuredCategory) return configuredCategory;
   return (guild.channels.cache.find((channel) => {
     if (channel.type !== ChannelType.GuildCategory) return false;
     const name = channel.name.toLowerCase();
@@ -159,7 +182,8 @@ async function setupLogs(interaction: LogCommandInteraction): Promise<void> {
   const createdChannels: TextChannel[] = [];
   let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
   try {
-    let category = findLogCategory(interaction.guild, me);
+    const selectionConfig = await getGuildConfig(interaction.guildId);
+    let category = findLogCategory(interaction.guild, me, selectionConfig);
     const managerRoleIds = [...interaction.guild.roles.cache.values()]
       .filter((role) => !role.managed && (role.permissions.has(PermissionFlagsBits.Administrator) || role.permissions.has(PermissionFlagsBits.ManageGuild)))
       .slice(0, 20)
@@ -252,8 +276,10 @@ export async function provisionLogsForGuild(guild: Guild, actorId: string): Prom
 
   const createdChannels: TextChannel[] = [];
   let createdCategory: { delete: (reason?: string) => Promise<unknown> } | null = null;
-  const existingCategory = findLogCategory(guild, me);
+  let existingCategory: CategoryChannel | null = null;
   try {
+    const selectionConfig = await getGuildConfig(guild.id);
+    existingCategory = findLogCategory(guild, me, selectionConfig);
     const category = existingCategory ?? await guild.channels.create({
       name: LOG_CATEGORY_NAME,
       type: ChannelType.GuildCategory,

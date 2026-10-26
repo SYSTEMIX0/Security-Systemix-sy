@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
+import { ChannelType } from "discord.js";
 import { describe, expect, it } from "vitest";
 import { defaultGuildSecurityConfig } from "../config";
-import { loggingDestination, loggingEnabled, SYSTEMIX_LOG_CHANNELS } from "./logging";
+import { findConfiguredLogCategory, loggingDestination, loggingEnabled, SYSTEMIX_LOG_CHANNELS } from "./logging";
 
 describe("privacy-conscious logging switches", () => {
   it("requires both module and event switches and respects ignored channels", () => {
@@ -48,6 +49,14 @@ describe("privacy-conscious logging switches", () => {
     const source = await readFile("server/discord/modules/logging.ts", "utf8");
     expect(source).toContain("hasCategorySetupAccess(channel, member)");
     expect(source).toContain("PermissionFlagsBits.ViewChannel");
+  });
+
+  it("prefers the saved log-channel parent even when it was renamed", () => {
+    const savedCategory = { id: "saved-category", type: ChannelType.GuildCategory, permissionsFor: () => ({ has: () => true }) };
+    const savedChannel = { id: "saved-ticket-log", parentId: "saved-category" };
+    const guild = { channels: { cache: new Map([[savedCategory.id, savedCategory], [savedChannel.id, savedChannel]]) } } as never;
+    const config = { ...defaultGuildSecurityConfig, logging: { ...defaultGuildSecurityConfig.logging, ticketChannelId: savedChannel.id } };
+    expect(findConfiguredLogCategory(guild, {} as never, config)).toBe(savedCategory);
   });
 
   it("fetches the bot member after a fresh invite when the Gateway member cache is empty", async () => {

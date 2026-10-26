@@ -213,10 +213,31 @@ function hasTicketCategoryAccess(category: CategoryChannel, member: GuildMember 
   ]));
 }
 
+/** Prefer the category holding the saved ticket centre over a same-named category. */
+export function findConfiguredTicketPanelCategory(guild: Guild, member: GuildMember | null, config: GuildSecurityConfig): CategoryChannel | null {
+  const centerId = config.tickets.panelChannelId;
+  if (!centerId) return null;
+  const center = guild.channels.cache.get(centerId);
+  if (!center?.parentId) return null;
+  const parent = guild.channels.cache.get(center.parentId);
+  return parent?.type === ChannelType.GuildCategory && hasTicketCategoryAccess(parent, member) ? parent : null;
+}
+
+/** Prefer the active-ticket category stored in the guild configuration. */
+export function findConfiguredActiveTicketCategory(guild: Guild, member: GuildMember | null, config: GuildSecurityConfig): CategoryChannel | null {
+  const categoryId = config.tickets.categoryId;
+  if (!categoryId) return null;
+  const category = guild.channels.cache.get(categoryId);
+  return category?.type === ChannelType.GuildCategory && hasTicketCategoryAccess(category, member) ? category : null;
+}
+
 function findPanelCategory(
-  guild: Parameters<NonNullable<SystemixModule["onCommand"]>>[0]["guild"],
+  guild: Guild,
   member: GuildMember | null,
+  config: GuildSecurityConfig,
 ): CategoryChannel | null {
+  const configuredCategory = findConfiguredTicketPanelCategory(guild, member, config);
+  if (configuredCategory) return configuredCategory;
   return (guild.channels.cache.find((channel) => {
     if (channel.type !== ChannelType.GuildCategory) return false;
     return (channel.name === PANEL_CATEGORY_NAME || channel.name === LEGACY_PANEL_CATEGORY_NAME)
@@ -224,7 +245,9 @@ function findPanelCategory(
   }) ?? null) as CategoryChannel | null;
 }
 
-function findActiveTicketCategory(guild: Guild, member: GuildMember | null): CategoryChannel | null {
+function findActiveTicketCategory(guild: Guild, member: GuildMember | null, config: GuildSecurityConfig): CategoryChannel | null {
+  const configuredCategory = findConfiguredActiveTicketCategory(guild, member, config);
+  if (configuredCategory) return configuredCategory;
   return (guild.channels.cache.find((channel) => channel.type === ChannelType.GuildCategory
     && channel.name === ACTIVE_TICKETS_CATEGORY_NAME
     && hasTicketCategoryAccess(channel, member)) ?? null) as CategoryChannel | null;
@@ -339,7 +362,7 @@ async function handleCommand(interaction: Parameters<NonNullable<SystemixModule[
   const mayManagePanels = member.id === interaction.guild.ownerId || member.permissions.has(PermissionFlagsBits.ManageGuild) || isStaffMember(member, config);
   if (!mayManagePanels) return respond(interaction, "هذا الأمر مخصص لمالك السيرفر أو فريق الدعم.");
   if (subcommand !== "panel") return respond(interaction, "الأمر غير متاح.");
-  const category = findPanelCategory(interaction.guild, await resolveBotMember(interaction.guild));
+  const category = findPanelCategory(interaction.guild, await resolveBotMember(interaction.guild), config);
   if (!category) return respond(interaction, "لا توجد قنوات لوحات التذاكر بعد. استخدم /ticket setup أولاً.");
   if (cfg.topics.length === 0) return respond(interaction, "أضف نوع تذكرة واحداً على الأقل قبل نشر اللوحة.");
 
@@ -386,8 +409,8 @@ async function setupTicketSystem(
 
   const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
   const createdPanels: TextChannel[] = [];
-  let panelCategory = findPanelCategory(interaction.guild, me);
-  let activeCategory = findActiveTicketCategory(interaction.guild, me);
+  let panelCategory = findPanelCategory(interaction.guild, me, config);
+  let activeCategory = findActiveTicketCategory(interaction.guild, me, config);
   try {
     if (!panelCategory) {
       panelCategory = await interaction.guild.channels.create({ name: PANEL_CATEGORY_NAME, type: ChannelType.GuildCategory, reason: "Security Systemix ticket panel setup" });
@@ -480,11 +503,15 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
   const createdCategories: Array<{ delete: (reason?: string) => Promise<unknown> }> = [];
   const createdPanels: TextChannel[] = [];
   let createdSupportRole: { delete: (reason?: string) => Promise<unknown> } | null = null;
-  const existingPanelCategory = findPanelCategory(guild, me);
-  let panelCategory = existingPanelCategory;
-  let activeCategory = findActiveTicketCategory(guild, me);
+  let existingPanelCategory: CategoryChannel | null = null;
+  let panelCategory: CategoryChannel | null = null;
+  let activeCategory: CategoryChannel | null = null;
   let stage = "support_role";
   try {
+    const selectionConfig = await getGuildConfig(guild.id);
+    existingPanelCategory = findPanelCategory(guild, me, selectionConfig);
+    panelCategory = existingPanelCategory;
+    activeCategory = findActiveTicketCategory(guild, me, selectionConfig);
     let supportRole = findProvisionSupportRole(guild, me);
     if (!supportRole) {
       if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) throw new Error("bot_missing_ticket_role_permissions");
