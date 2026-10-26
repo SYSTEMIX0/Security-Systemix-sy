@@ -67,8 +67,8 @@ describe("Discord OAuth session protection", () => {
     setOAuthStateCookie(response, "state");
     setCsrfCookie(response, "csrf");
 
-    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true });
-    expect(cookie.mock.calls[1]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: false });
+    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true, partitioned: true });
+    expect(cookie.mock.calls[1]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: false, partitioned: true });
   });
 
   it("uses Lax only for plain-HTTP localhost development callbacks", () => {
@@ -80,8 +80,8 @@ describe("Discord OAuth session protection", () => {
     setOAuthStateCookie(response, "state");
     setCsrfCookie(response, "csrf");
 
-    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "lax", secure: false, httpOnly: true });
-    expect(cookie.mock.calls[1]?.[2]).toMatchObject({ sameSite: "lax", secure: false, httpOnly: false });
+    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "lax", secure: false, httpOnly: true, partitioned: false });
+    expect(cookie.mock.calls[1]?.[2]).toMatchObject({ sameSite: "lax", secure: false, httpOnly: false, partitioned: false });
   });
 
   it("never downgrades a production cookie for a localhost HTTP redirect", () => {
@@ -92,7 +92,7 @@ describe("Discord OAuth session protection", () => {
 
     setOAuthStateCookie(response, "state");
 
-    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true });
+    expect(cookie.mock.calls[0]?.[2]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true, partitioned: true });
   });
 
   it("clears the OAuth state with the same HTTPS cookie attributes used when setting it", () => {
@@ -102,6 +102,6 @@ describe("Discord OAuth session protection", () => {
 
     clearOAuthStateCookie(response);
 
-    expect(clearCookie.mock.calls[0]?.[1]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true });
+    expect(clearCookie.mock.calls[0]?.[1]).toMatchObject({ sameSite: "none", secure: true, httpOnly: true, partitioned: true });
   });
 });

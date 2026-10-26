@@ -68,6 +68,8 @@ function cookieOptions(httpOnly: boolean) {
     path: "/",
     sameSite: secure ? "none" as const : "lax" as const,
     secure,
+    // Allows the encrypted session to persist in browser contexts that partition third-party cookies.
+    partitioned: secure,
   };
 }
 
