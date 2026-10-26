@@ -129,7 +129,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
 
       {problem && <div className="pc-message pc-message-error" role="alert"><AlertTriangle size={18} /> {problem}</div>}
       {notice && <div className="pc-message pc-message-success" role="status"><CheckCircle2 size={18} /> {notice}</div>}
-      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> بعد تخصيص الأقسام وحفظها، اكتب <bdi dir="ltr">/systemix-tickets setup</bdi> في Discord واختر رتبة الدعم. ينشئ البوت مركز تذاكر بقائمة الأقسام وقنوات خاصة للطلبات. لا تتضمن هذه النسخة حفظ نصوص المحادثات أو Transcript.</div>
+      <div className="pc-message pc-message-warn"><AlertTriangle size={18} /> بعد تخصيص الأقسام وحفظها، اكتب <bdi dir="ltr">/systemix-tickets setup</bdi> في Discord واختر رتبة الدعم. ينشئ البوت مركز تذاكر بقائمة الأقسام وقنوات خاصة للطلبات. لا تُحفظ محادثات التذاكر إلا إذا فعّل مالك السيرفر خيار «حفظ سجل المحادثة بعد الإغلاق» أدناه؛ عندها يظهر زر «عرض التذكرة» في لوق الإغلاق.</div>
 
       <div className="pc-grid">
         <article className="pc-card">
