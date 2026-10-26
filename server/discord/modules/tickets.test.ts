@@ -67,7 +67,7 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('customId("tickets", "closeconfirm", ticket.id)');
   });
 
-  it("formats a spacious Arabic closing card without retaining ticket conversation text", () => {
+  it("formats a compact reference-style Arabic closing card without retaining ticket conversation text", () => {
     const fields = ticketLifecycleLogFields({
       guild: {} as never,
       config: defaultGuildSecurityConfig,
@@ -82,16 +82,18 @@ describe("ticket safety helpers", () => {
       openedAt: new Date("2026-10-26T10:00:00.000Z"),
       closedAt: new Date("2026-10-26T10:30:00.000Z"),
       closeReason: "انتهاء الطلب",
+      claimedById: "claimer-id",
     });
     expect(fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ name: "🎫 ملخص التذكرة", value: expect.stringContaining("#12"), inline: false }),
-      expect.objectContaining({ name: "👥 أطراف التذكرة", value: expect.stringContaining("<@opener-id>"), inline: false }),
-      expect.objectContaining({ name: "👥 أطراف التذكرة", value: expect.stringContaining("<@closer-id>"), inline: false }),
-      expect.objectContaining({ name: "📌 سبب الإغلاق", value: "انتهاء الطلب" }),
-      expect.objectContaining({ name: "🗃️ حالة القناة", value: "حُذفت قناة التذكرة بعد إتمام الإغلاق.", inline: false }),
+      expect.objectContaining({ name: "تم الفتح بواسطة", value: "<@opener-id>", inline: true }),
+      expect.objectContaining({ name: "تم الاستلام بواسطة", value: "<@claimer-id>", inline: true }),
+      expect.objectContaining({ name: "تم الإغلاق بواسطة", value: "<@closer-id>", inline: true }),
+      expect.objectContaining({ name: "وقت الفتح", inline: true }),
+      expect.objectContaining({ name: "وقت الإغلاق", inline: true }),
+      expect.objectContaining({ name: "سبب الإغلاق", value: expect.stringContaining("انتهاء الطلب"), inline: false }),
     ]));
-    expect(fields.every((field) => field.inline === false)).toBe(true);
-    expect(JSON.stringify(fields)).not.toContain("channel-id");
+    expect(fields).toHaveLength(6);
+    expect(fields.find((field) => field.name === "سبب الإغلاق")?.value).toContain("```ansi");
     expect(JSON.stringify(fields)).not.toContain("محتوى المحادثة");
   });
 
@@ -111,6 +113,13 @@ describe("ticket safety helpers", () => {
     expect(source).toContain("attachment.name ?? \"مرفق\"");
     expect(source).not.toContain("attachment.url");
     expect(source).toContain('setLabel("عرض التذكرة").setStyle(ButtonStyle.Link)');
+  });
+
+  it("uses the Systemix ticket artwork and guild identity in lifecycle log cards", async () => {
+    const source = await readFile("server/discord/modules/tickets.ts", "utf8");
+    expect(source).toContain('"/systemix-ticket-archive-thumbnail.png"');
+    expect(source).toContain("embed.setAuthor");
+    expect(source).toContain("Ticket Logs");
   });
 
   it("avoids reusing a ticket category hidden from the bot", async () => {

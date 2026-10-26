@@ -36,6 +36,7 @@ import {
   setTicketChannel,
   type TicketTranscript,
 } from "../store/tickets";
+import { discordRedirectUri } from "../redirect";
 import { ticketTranscriptUrl } from "../transcript-url";
 
 export function cleanTicketChannelName(name: string): string {
@@ -120,6 +121,7 @@ export type TicketLifecycleLogInput = {
   closedAt?: Date;
   closeReason?: string;
   transcriptUrl?: string;
+  claimedById?: string | null;
 };
 
 function ticketLogTimestamp(date: Date | undefined): string {
@@ -133,31 +135,37 @@ function ticketLogTopic(input: TicketLifecycleLogInput): string {
     ?? "غير محدد";
 }
 
-/** Builds a readable Arabic summary without retaining any ticket message text. */
+function ticketLogArtworkUrl(): string {
+  const origin = new URL(discordRedirectUri()).origin;
+  return new URL("/systemix-ticket-archive-thumbnail.png", origin).toString();
+}
+
+function ticketLogReason(value: string | undefined): string {
+  const safe = (value ?? "إغلاق يدوي").replace(/```/g, "'''").trim().slice(0, 512) || "إغلاق يدوي";
+  return `\`\`\`ansi\n\u001b[2;33m${safe}\u001b[0m\n\`\`\``;
+}
+
+/** Builds a compact, reference-style Arabic lifecycle card without retaining ticket message text. */
 export function ticketLifecycleLogFields(input: TicketLifecycleLogInput): Array<{ name: string; value: string; inline: boolean }> {
-  const channel = input.channelId
-    ? input.channelDeleted ? "حُذفت قناة التذكرة بعد إتمام الإغلاق." : `<#${input.channelId}>`
-    : "غير متاحة";
   const identity = (id: string) => `<@${id}>`;
-  const ticketNumber = `#${input.ticketNumber}`;
   const topic = ticketLogTopic(input);
-  const details = `**رقم التذكرة:** ${ticketNumber}\n**القسم:** ${topic}`;
 
   if (input.eventType === "closed") {
     return [
-      { name: "🎫 ملخص التذكرة", value: details, inline: false },
-      { name: "👥 أطراف التذكرة", value: `**صاحب التذكرة:** ${identity(input.openerId)}\n**أدار الإغلاق:** ${identity(input.actorId)}`, inline: false },
-      { name: "🕓 التسلسل الزمني", value: `**فُتحت:** ${ticketLogTimestamp(input.openedAt)}\n**أُغلقت:** ${ticketLogTimestamp(input.closedAt)}`, inline: false },
-      { name: "📌 سبب الإغلاق", value: input.closeReason ?? "إغلاق يدوي", inline: false },
-      { name: "🗃️ حالة القناة", value: channel, inline: false },
+      { name: "تم الفتح بواسطة", value: identity(input.openerId), inline: true },
+      { name: "تم الاستلام بواسطة", value: input.claimedById ? identity(input.claimedById) : "لا أحد", inline: true },
+      { name: "تم الإغلاق بواسطة", value: identity(input.actorId), inline: true },
+      { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
+      { name: "وقت الإغلاق", value: ticketLogTimestamp(input.closedAt), inline: true },
+      { name: "سبب الإغلاق", value: ticketLogReason(input.closeReason), inline: false },
     ];
   }
 
   return [
-    { name: "🎫 ملخص التذكرة", value: details, inline: false },
-    { name: "👥 أطراف التذكرة", value: `**صاحب التذكرة:** ${identity(input.openerId)}\n**${input.eventType === "opened" ? "فُتحت بواسطة" : "استلمها"}:** ${identity(input.actorId)}`, inline: false },
-    { name: "🕓 وقت فتح التذكرة", value: ticketLogTimestamp(input.openedAt), inline: false },
-    { name: "📂 قناة التذكرة", value: channel, inline: false },
+    { name: input.eventType === "opened" ? "تم الفتح بواسطة" : "تم الاستلام بواسطة", value: identity(input.actorId), inline: true },
+    { name: "صاحب التذكرة", value: identity(input.openerId), inline: true },
+    { name: "قسم التذكرة", value: topic, inline: true },
+    { name: "وقت الفتح", value: ticketLogTimestamp(input.openedAt), inline: true },
   ];
 }
 
@@ -224,28 +232,23 @@ async function writeTicketLifecycleLog(input: TicketLifecycleLogInput): Promise<
   const destination = loggingDestination(input.config, "ticketEvents");
   if (!destination) return;
   const eventNames = {
-    opened: `🎫 تذكرة جديدة · #${input.ticketNumber}`,
-    claimed: `🤝 تم استلام التذكرة · #${input.ticketNumber}`,
-    closed: `🔒 أُغلقت التذكرة · #${input.ticketNumber}`,
+    opened: "تم فتح التذكرة",
+    claimed: "تم استلام التذكرة",
+    closed: "تم إغلاق التذكرة",
   } as const;
-  const eventDescriptions = {
-    opened: "بدأت رحلة دعم جديدة. كل التفاصيل موثقة بشكل منظم أدناه.",
-    claimed: "تسلّمها أحد أعضاء الدعم؛ ستظل كل خطواتها موثقة هنا.",
-    closed: input.transcriptUrl
-      ? "اكتمل الإغلاق. استخدم زر **عرض التذكرة** أسفل البطاقة لفتح السجل المحمي."
-      : "اكتمل الإغلاق. يبقى هذا اللوق ملخصاً للحدث ولا يعرض محتوى المحادثة.",
-  } as const;
-  const botAvatar = input.guild.client.user?.displayAvatarURL() ?? null;
+  const guildIcon = input.guild.iconURL({ extension: "png", size: 128 });
+  const embed = systemixEmbed({
+    title: eventNames[input.eventType],
+    tone: input.eventType === "closed" ? "info" : "brand",
+    fields: ticketLifecycleLogFields(input),
+    config: input.config,
+    footer: "Ticket Logs",
+    thumbnail: ticketLogArtworkUrl(),
+  });
+  embed.setColor(input.eventType === "closed" ? 0x22324a : 0x2e658b);
+  embed.setAuthor(guildIcon ? { name: input.guild.name.slice(0, 256), iconURL: guildIcon } : { name: input.guild.name.slice(0, 256) });
   await sendSecurityAlert(input.guild, input.config, destination, {
-    embeds: [systemixEmbed({
-      title: eventNames[input.eventType],
-      description: eventDescriptions[input.eventType],
-      tone: input.eventType === "closed" ? "success" : "info",
-      fields: ticketLifecycleLogFields(input),
-      config: input.config,
-      footer: input.transcriptUrl ? "سجل التذاكر · Transcript محمي" : "سجل التذاكر · لا يُحفظ محتوى المحادثة",
-      thumbnail: botAvatar,
-    })],
+    embeds: [embed],
     ...(input.eventType === "closed" && input.transcriptUrl ? {
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setLabel("عرض التذكرة").setStyle(ButtonStyle.Link).setURL(input.transcriptUrl),
@@ -856,6 +859,7 @@ async function onComponent(interaction: ComponentInteraction) {
         guild, config, eventType: "closed", actorId: member.id, openerId: ticket.openerId,
         ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: closingTicket.channelId, channelDeleted: true,
         topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason: "إغلاق يدوي من لوحة التذكرة", transcriptUrl,
+        claimedById: closingTicket.claimedById,
       });
       return respond(interaction, transcriptUrl
         ? "تم إغلاق التذكرة وحذف قناتها. أرسل البوت زر «عرض التذكرة» في لوق التذاكر؛ السجل محمي بحساب Discord المصرح."
