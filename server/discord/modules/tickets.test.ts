@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
-import { canManageTicket, cleanTicketChannelName, ticketChannelPrefix, ticketPanelChannelName } from "./tickets";
+import { canManageTicket, cleanTicketChannelName, isUsableTicketSupportRole, ticketChannelPrefix, ticketPanelChannelName } from "./tickets";
 
 describe("ticket safety helpers", () => {
   it("only lets opener or staff close a ticket", () => {
@@ -27,6 +27,13 @@ describe("ticket safety helpers", () => {
     expect(ticketPanelChannelName("levelup-ticket")).toBe("📈・levelup-ticket");
   });
 
+  it("uses only an unmanaged support role below the bot's highest role", () => {
+    expect(isUsableTicketSupportRole({ managed: false, position: 4 } as never, 5)).toBe(true);
+    expect(isUsableTicketSupportRole({ managed: false, position: 5 } as never, 5)).toBe(false);
+    expect(isUsableTicketSupportRole({ managed: false, position: 6 } as never, 5)).toBe(false);
+    expect(isUsableTicketSupportRole({ managed: true, position: 1 } as never, 5)).toBe(false);
+  });
+
   it("captures a select value before React schedules its state update", async () => {
     const source = await readFile("client/src/components/ProtectionConsole.tsx", "utf8");
     expect(source).toContain('const mode = event.currentTarget.value as GuildSecurityConfig["mode"];');
@@ -40,6 +47,7 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('ticketCommand("systemix-tickets")');
     expect(source).toContain('customId("tickets", "open", topic.id)');
     expect(source).toContain("ACTIVE_TICKETS_CATEGORY_NAME");
+    expect(source).toContain("MANAGED_SUPPORT_ROLE_NAME");
   });
 
   it("creates a configurable ticket centre and records lifecycle events without ticket text", async () => {

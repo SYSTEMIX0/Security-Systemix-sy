@@ -12,6 +12,7 @@ import {
   type GuildMember,
   type Message,
   type CategoryChannel,
+  type Role,
   type TextChannel,
 } from "discord.js";
 import type { ComponentInteraction, SystemixModule } from "../core/types";
@@ -57,6 +58,7 @@ const PANEL_CATEGORY_NAME = "🎫・ticket-panels";
 const LEGACY_PANEL_CATEGORY_NAME = "🎫・systemix-tickets";
 export const TICKET_CENTER_CHANNEL_NAME = "🎟️・ticket-center";
 const ACTIVE_TICKETS_CATEGORY_NAME = "🔒・active-tickets";
+const MANAGED_SUPPORT_ROLE_NAME = "Systemix Support • Bot";
 
 export function ticketPanelChannelName(topicId: string): string {
   return TICKET_PANEL_CHANNELS[topicId] ?? `🎫・${ticketChannelPrefix(topicId)}`;
@@ -235,6 +237,22 @@ function findTicketCenter(guild: Parameters<NonNullable<SystemixModule["onComman
 /** A just-invited bot can have an empty member cache despite valid Discord permissions. */
 async function resolveBotMember(guild: Guild): Promise<GuildMember | null> {
   return guild.members.me ?? guild.members.fetchMe().catch(() => null);
+}
+
+/** A ticket support role must be non-managed and below the bot in Discord's hierarchy. */
+export function isUsableTicketSupportRole(
+  role: Pick<Role, "managed" | "position">,
+  botHighestRolePosition: number,
+): boolean {
+  return !role.managed && role.position < botHighestRolePosition;
+}
+
+function findProvisionSupportRole(guild: Guild, me: GuildMember): Role | null {
+  const acceptedNames = new Set(["systemix support", MANAGED_SUPPORT_ROLE_NAME.toLowerCase()]);
+  const candidates = [...guild.roles.cache.values()]
+    .filter((role) => acceptedNames.has(role.name.toLowerCase()) && isUsableTicketSupportRole(role, me.roles.highest.position))
+    .sort((left, right) => right.position - left.position);
+  return candidates[0] ?? null;
 }
 
 function containsTicketTrigger(message: Pick<Message<true>, "components">): boolean {
@@ -434,17 +452,20 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
   const existingPanelCategory = findPanelCategory(guild, me);
   let panelCategory = existingPanelCategory;
   let activeCategory = findActiveTicketCategory(guild, me);
+  let stage = "support_role";
   try {
-    let supportRole = [...guild.roles.cache.values()].find((role) => !role.managed && role.name.toLowerCase() === "systemix support") ?? null;
+    let supportRole = findProvisionSupportRole(guild, me);
     if (!supportRole) {
       if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) throw new Error("bot_missing_ticket_role_permissions");
-      supportRole = await guild.roles.create({ name: "Systemix Support", permissions: [], reason: "Security Systemix ticket support role" });
+      supportRole = await guild.roles.create({ name: MANAGED_SUPPORT_ROLE_NAME, permissions: [], reason: "Security Systemix ticket support role" });
       createdSupportRole = supportRole;
     }
+    stage = "panel_category";
     if (!panelCategory) {
       panelCategory = await guild.channels.create({ name: PANEL_CATEGORY_NAME, type: ChannelType.GuildCategory, reason: "Security Systemix owner ticket panel setup" });
       createdCategories.push(panelCategory);
     }
+    stage = "active_ticket_category";
     if (!activeCategory) {
       activeCategory = await guild.channels.create({
         name: ACTIVE_TICKETS_CATEGORY_NAME,
@@ -462,6 +483,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
     const config = await getGuildConfig(guild.id);
     const setupTopics = config.tickets.topics.length ? config.tickets.topics : defaultGuildSecurityConfig.tickets.topics;
     let center = findTicketCenter(guild, panelCategory.id);
+    stage = "ticket_center";
     if (!center) {
       center = await guild.channels.create({
         name: TICKET_CENTER_CHANNEL_NAME,
@@ -475,6 +497,7 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
       }) as TextChannel;
       createdPanels.push(center);
     }
+    stage = "topic_panels";
     for (const topic of setupTopics.filter((item) => item.id in TICKET_PANEL_CHANNELS)) {
       let panel = findTextChannel(guild, panelCategory.id, ticketPanelChannelName(topic.id));
       if (!panel) {
@@ -492,14 +515,17 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
     const next = mergeGuildSecurityConfig(config, {
       tickets: { enabled: true, categoryId: activeCategory.id, panelChannelId: center.id, staffRoleIds: [supportRole.id], topics: setupTopics },
     });
+    stage = "publish_panels";
     await publishTicketCenter(guild, next.tickets, panelCategory.id, me.id);
     await publishTicketPanels(guild, next.tickets, panelCategory.id, me.id);
+    stage = "save_configuration";
     await upsertGuildSecuritySettings(guild.id, actorId, next);
     return { createdPanels: createdPanels.length, createdSupportRole: Boolean(createdSupportRole), reusedPanelCategory: Boolean(existingPanelCategory) };
   } catch (error) {
     await Promise.all(createdPanels.map((panel) => panel.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined)));
     await Promise.all(createdCategories.reverse().map((category) => category.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined)));
     if (createdSupportRole) await createdSupportRole.delete("Rolling back incomplete Security Systemix owner ticket setup").catch(() => undefined);
+    logSafe(`Ticket owner provisioning failed in guild ${guild.id} at ${stage}`, error);
     if (typeof error === "object" && error !== null && "code" in error && [50001, 50013].includes(Number(error.code))) {
       throw new Error("bot_missing_ticket_setup_permissions");
     }
