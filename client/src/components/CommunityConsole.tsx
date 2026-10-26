@@ -142,7 +142,7 @@ export default function CommunityConsole({ guildId, guildName }: Props) {
           <TextField label="وصف اللوحة" value={draft.tickets.panelDescription} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { panelDescription: value })} />
           <TextField label="رسالة فتح التذكرة — يدعم {user}" value={draft.tickets.openMessage} maxLength={1_000} multiline onChange={(value) => updateSection("tickets", { openMessage: value })} />
           <SwitchRow label="حفظ سجل المحادثة بعد الإغلاق" checked={draft.tickets.transcriptEnabled} onChange={(checked) => updateSection("tickets", { transcriptEnabled: checked })} />
-          {draft.tickets.transcriptEnabled && <p className="pc-hint">سيحفظ البوت نصوص رسائل التذكرة وروابط المرفقات عند إغلاقها، ثم يضع زر «عرض التذكرة» في لوق الإغلاق. لا تُفعّل هذا الخيار إلا إذا كانت سياسة سيرفرك تسمح بذلك.</p>}
+          {draft.tickets.transcriptEnabled && <p className="pc-hint">سيحفظ البوت نصوص رسائل التذكرة وأسماء المرفقات فقط عند إغلاقها، ثم يضع زر «عرض التذكرة» في لوق الإغلاق. لا تُحفظ روابط Discord الخاصة بالمرفقات. لا تُفعّل هذا الخيار إلا إذا كانت سياسة سيرفرك تسمح بذلك.</p>}
           <TicketTopicsEditor topics={draft.tickets.topics} onUpdate={updateTicketTopic} onAdd={addTicketTopic} onRemove={removeTicketTopic} />
           <p className="pc-hint">هذه الأقسام تظهر في قائمة <bdi dir="ltr">🎟️・ticket-center</bdi>. غيّر الاسم والوصف والرمز كما تريد، ثم احفظ ونفّذ <bdi dir="ltr">/systemix-tickets panel</bdi> لتحديث اللوحة. لا تحذف كل الأقسام؛ يجب أن يبقى قسم واحد على الأقل.</p>
         </article>
