@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { ChannelType } from "discord.js";
 import { describe, expect, it } from "vitest";
-import { canManageTicket, cleanTicketChannelName, findConfiguredActiveTicketCategory, findConfiguredTicketPanelCategory, isUsableTicketSupportRole, ticketChannelPrefix, ticketLifecycleLogFields, ticketPanelChannelName } from "./tickets";
+import { canManageTicket, cleanTicketChannelName, findConfiguredActiveTicketCategory, findConfiguredTicketPanelCategory, isUsableTicketSupportRole, normalizeTicketCloseReason, TICKET_CLOSE_REASON_MAX_LENGTH, ticketChannelPrefix, ticketLifecycleLogFields, ticketPanelChannelName } from "./tickets";
 import { defaultGuildSecurityConfig } from "../config";
 
 describe("ticket safety helpers", () => {
@@ -9,6 +9,12 @@ describe("ticket safety helpers", () => {
     expect(canManageTicket("opener", "opener", false)).toBe(true);
     expect(canManageTicket("other", "opener", false)).toBe(false);
     expect(canManageTicket("staff", "opener", true)).toBe(true);
+  });
+
+  it("requires a bounded non-empty close reason without control characters", () => {
+    expect(normalizeTicketCloseReason("  تم حل المشكلة\n\nبعد التأكيد  ")).toBe("تم حل المشكلة بعد التأكيد");
+    expect(normalizeTicketCloseReason("\u0000 \n\t")).toBeNull();
+    expect(normalizeTicketCloseReason("أ".repeat(TICKET_CLOSE_REASON_MAX_LENGTH + 20))).toHaveLength(TICKET_CLOSE_REASON_MAX_LENGTH);
   });
 
   it("normalizes channel names and falls back when no safe characters remain", () => {
@@ -64,7 +70,15 @@ describe("ticket safety helpers", () => {
     expect(source).toContain('eventType: "opened"');
     expect(source).toContain('eventType: "claimed"');
     expect(source).toContain('eventType: "closed"');
-    expect(source).toContain('customId("tickets", "closeconfirm", ticket.id)');
+    expect(source).toContain('customId("tickets", "closemodal", arg)');
+    expect(source).toContain('customId("tickets", "closeconfirm", ticket.id, nonce)');
+    expect(source).toContain("createPendingTicketClose");
+    expect(source).toContain("consumePendingTicketClose");
+    expect(source).toContain("finishTicketClose(guild.id, ticket.id, member.id, closeReason, closedAt)");
+    expect(source).toContain("onModal,");
+    expect(source).not.toContain('closeReason: "إغلاق يدوي من لوحة التذكرة"');
+    const componentHandler = source.slice(source.indexOf("async function onComponent"), source.indexOf("async function onModal"));
+    expect(componentHandler.indexOf("interaction.showModal(modal)")).toBeLessThan(componentHandler.indexOf("await deferTicketReply(interaction)"));
   });
 
   it("formats a compact reference-style Arabic closing card without retaining ticket conversation text", () => {

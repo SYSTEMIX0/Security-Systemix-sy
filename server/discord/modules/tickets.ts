@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -5,13 +6,17 @@ import {
   ChannelType,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
   PermissionFlagsBits,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type Guild,
   type GuildMember,
   type Message,
   type CategoryChannel,
+  type ModalSubmitInteraction,
   type Role,
   type TextChannel,
 } from "discord.js";
@@ -81,7 +86,47 @@ export function canManageTicket(actorId: string, openerId: string, staff: boolea
   return actorId === openerId || staff;
 }
 
-type TicketInteraction = Parameters<NonNullable<SystemixModule["onCommand"]>>[0] | ComponentInteraction;
+type TicketModalInteraction = ModalSubmitInteraction<"cached">;
+type TicketInteraction = Parameters<NonNullable<SystemixModule["onCommand"]>>[0] | ComponentInteraction | TicketModalInteraction;
+
+export const TICKET_CLOSE_REASON_MAX_LENGTH = 512;
+const PENDING_TICKET_CLOSE_TTL_MS = 5 * 60 * 1_000;
+
+type PendingTicketClose = {
+  guildId: string;
+  channelId: string;
+  ticketId: number;
+  actorId: string;
+  reason: string;
+  expiresAt: number;
+};
+
+const pendingTicketCloses = new Map<string, PendingTicketClose>();
+
+/** Normalizes the only human-entered close reason before it reaches logs or storage. */
+export function normalizeTicketCloseReason(value: string): string | null {
+  const normalized = value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, TICKET_CLOSE_REASON_MAX_LENGTH);
+  return normalized || null;
+}
+
+function createPendingTicketClose(input: Omit<PendingTicketClose, "expiresAt">): string {
+  const now = Date.now();
+  for (const [nonce, pending] of pendingTicketCloses) {
+    if (pending.expiresAt <= now) pendingTicketCloses.delete(nonce);
+  }
+  const nonce = randomBytes(12).toString("hex");
+  pendingTicketCloses.set(nonce, { ...input, expiresAt: now + PENDING_TICKET_CLOSE_TTL_MS });
+  return nonce;
+}
+
+function consumePendingTicketClose(nonce: string | undefined, expected: Omit<PendingTicketClose, "reason" | "expiresAt">): string | null {
+  if (!nonce || !/^[a-f0-9]{24}$/.test(nonce)) return null;
+  const pending = pendingTicketCloses.get(nonce);
+  pendingTicketCloses.delete(nonce);
+  if (!pending || pending.expiresAt <= Date.now()) return null;
+  if (pending.guildId !== expected.guildId || pending.channelId !== expected.channelId || pending.ticketId !== expected.ticketId || pending.actorId !== expected.actorId) return null;
+  return pending.reason;
+}
 
 async function deferTicketReply(interaction: TicketInteraction): Promise<void> {
   if (!interaction.deferred && !interaction.replied) {
@@ -715,8 +760,26 @@ export async function provisionTicketsForGuild(guild: Guild, actorId: string): P
 }
 
 async function onComponent(interaction: ComponentInteraction) {
+  const [action, arg, nonce] = interaction.customId.split(":").slice(2);
+  if (action === "close" && arg && /^\d+$/.test(arg)) {
+    const modal = new ModalBuilder()
+      .setCustomId(customId("tickets", "closemodal", arg))
+      .setTitle(`سبب إغلاق التذكرة #${arg}`.slice(0, 45))
+      .addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("reason")
+          .setLabel("سبب الإغلاق")
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder("مثال: تم حل الطلب بعد تأكيد صاحب التذكرة")
+          .setMinLength(1)
+          .setMaxLength(TICKET_CLOSE_REASON_MAX_LENGTH)
+          .setRequired(true),
+      ));
+    await interaction.showModal(modal);
+    return;
+  }
+
   await deferTicketReply(interaction);
-  const [action, arg] = interaction.customId.split(":").slice(2);
   const guild = interaction.guild;
   if (!guild) return respond(interaction, "تعذر تحديد السيرفر.");
   const config = await getGuildConfig(guild.id);
@@ -804,7 +867,7 @@ async function onComponent(interaction: ComponentInteraction) {
     }
   }
 
-  if ((action === "close" || action === "closeconfirm" || action === "closecancel" || action === "claim") && arg && /^\d+$/.test(arg)) {
+  if ((action === "closeconfirm" || action === "closecancel" || action === "claim") && arg && /^\d+$/.test(arg)) {
     const ticket = await getTicketByChannel(guild.id, interaction.channelId);
     if (!ticket || ticket.id !== Number(arg) || ticket.status === "closed" || ticket.status === "closing") return respond(interaction, "التذكرة غير متاحة.");
     const staff = isStaffMember(member, config) || cfg.staffRoleIds.some((id) => member.roles.cache.has(id));
@@ -825,15 +888,9 @@ async function onComponent(interaction: ComponentInteraction) {
     }
 
     if (!canManageTicket(member.id, ticket.openerId, staff)) return respond(interaction, "لا يمكنك إغلاق تذكرة شخص آخر.");
+    const closeReason = consumePendingTicketClose(nonce, { guildId: guild.id, channelId: interaction.channelId, ticketId: ticket.id, actorId: member.id });
+    if (!closeReason) return respond(interaction, "انتهت مهلة تأكيد الإغلاق أو لا تخصك هذه العملية. ابدأ الإغلاق من جديد.");
     if (action === "closecancel") return respond(interaction, "أُلغي إغلاق التذكرة؛ بقيت مفتوحة.");
-    if (action === "close") {
-      const confirmation = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(customId("tickets", "closeconfirm", ticket.id)).setLabel("نعم، أغلق التذكرة").setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId(customId("tickets", "closecancel", ticket.id)).setLabel("إلغاء").setStyle(ButtonStyle.Secondary),
-      );
-      await interaction.editReply({ content: "هل أنت متأكد؟ سيُحذف Channel التذكرة ثم يوثق البوت عملية الإغلاق في السجل.", components: [confirmation], allowedMentions: { parse: [] } });
-      return;
-    }
     const closingTicket = await beginTicketClose(guild.id, ticket.id);
     if (!closingTicket) return respond(interaction, "التذكرة قيد الإغلاق أو أُغلقت بالفعل.");
     let channelDeleted = !closingTicket.channelId;
@@ -853,12 +910,12 @@ async function onComponent(interaction: ComponentInteraction) {
         channelDeleted = true;
       }
       const closedAt = new Date();
-      const finalized = await finishTicketClose(guild.id, ticket.id, member.id, closedAt);
+      const finalized = await finishTicketClose(guild.id, ticket.id, member.id, closeReason, closedAt);
       if (!finalized) throw new Error("ticket_close_finalize_failed");
       void writeTicketLifecycleLog({
         guild, config, eventType: "closed", actorId: member.id, openerId: ticket.openerId,
         ticketId: ticket.id, ticketNumber: ticket.ticketNumber, channelId: closingTicket.channelId, channelDeleted: true,
-        topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason: "إغلاق يدوي من لوحة التذكرة", transcriptUrl,
+        topic: ticket.topic, openedAt: ticket.createdAt, closedAt, closeReason, transcriptUrl,
         claimedById: closingTicket.claimedById,
       });
       return respond(interaction, transcriptUrl
@@ -877,6 +934,35 @@ async function onComponent(interaction: ComponentInteraction) {
   }
 }
 
+async function onModal(interaction: TicketModalInteraction) {
+  const [action, arg] = interaction.customId.split(":").slice(2);
+  if (action !== "closemodal" || !arg || !/^\d+$/.test(arg)) return;
+  await deferTicketReply(interaction);
+  const guild = interaction.guild;
+  if (!guild) return respond(interaction, "تعذر تحديد السيرفر.");
+  const channelId = interaction.channelId;
+  if (!channelId) return respond(interaction, "تعذر تحديد قناة التذكرة.");
+  const config = await getGuildConfig(guild.id);
+  const cfg = config.tickets;
+  if (!cfg.enabled) return respond(interaction, "نظام التذاكر غير مفعّل.");
+  const ticket = await getTicketByChannel(guild.id, channelId);
+  if (!ticket || ticket.id !== Number(arg) || ticket.status === "closed" || ticket.status === "closing") return respond(interaction, "التذكرة غير متاحة.");
+
+  const member = interaction.member as GuildMember;
+  const staff = isStaffMember(member, config) || cfg.staffRoleIds.some((id) => member.roles.cache.has(id));
+  if (!canManageTicket(member.id, ticket.openerId, staff)) return respond(interaction, "لا يمكنك إغلاق تذكرة شخص آخر.");
+
+  const closeReason = normalizeTicketCloseReason(interaction.fields.getTextInputValue("reason"));
+  if (!closeReason) return respond(interaction, "اكتب سبب إغلاق واضحاً قبل المتابعة.");
+
+  const nonce = createPendingTicketClose({ guildId: guild.id, channelId, ticketId: ticket.id, actorId: member.id, reason: closeReason });
+  const confirmation = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder().setCustomId(customId("tickets", "closeconfirm", ticket.id, nonce)).setLabel("نعم، أغلق التذكرة").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(customId("tickets", "closecancel", ticket.id, nonce)).setLabel("إلغاء").setStyle(ButtonStyle.Secondary),
+  );
+  await interaction.editReply({ content: `هل أنت متأكد؟ سيُحذف Channel التذكرة ثم يوثق البوت عملية الإغلاق.\n**سبب الإغلاق:** ${closeReason}`, components: [confirmation], allowedMentions: { parse: [] } });
+}
+
 export const ticketsModule: SystemixModule = {
   name: "tickets",
   implemented: true,
@@ -884,4 +970,5 @@ export const ticketsModule: SystemixModule = {
   onCommand: handleCommand,
   componentPrefix: "tickets",
   onComponent,
+  onModal,
 };

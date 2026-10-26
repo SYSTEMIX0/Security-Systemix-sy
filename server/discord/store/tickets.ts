@@ -165,14 +165,14 @@ export async function restoreTicketAfterCloseFailure(guildId: string, id: number
 }
 
 /** Finalizes a successfully deleted ticket and releases the member's active slot. */
-export async function finishTicketClose(guildId: string, id: number, actorId: string, closedAt = new Date()): Promise<boolean> {
+export async function finishTicketClose(guildId: string, id: number, actorId: string, closeReason: string, closedAt = new Date()): Promise<boolean> {
   const db = await getDb();
   if (!db) throw new Error("Database is not available");
   return db.transaction(async (tx) => {
     const [ticket] = await tx.select().from(tickets)
       .where(and(eq(tickets.guildId, guildId), eq(tickets.id, id))).for("update");
     if (!ticket || ticket.status !== "closing") return false;
-    await tx.update(tickets).set({ status: "closed", closedById: actorId, closedAt })
+    await tx.update(tickets).set({ status: "closed", closedById: actorId, closedAt, closeReason })
       .where(and(eq(tickets.guildId, guildId), eq(tickets.id, id), eq(tickets.status, "closing")));
     await decrementOpenCount(tx, guildId, ticket.openerId);
     return true;

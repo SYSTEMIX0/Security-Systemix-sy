@@ -8,6 +8,7 @@ const ticket = {
   openerId: "111111111111111111",
   claimedById: "222222222222222222",
   closedById: "333333333333333333",
+  closeReason: "تم الحل <script>alert('x')</script>",
   topic: "technical-support",
   createdAt: new Date("2026-10-26T18:00:00.000Z"),
   closedAt: new Date("2026-10-26T18:05:00.000Z"),
@@ -45,6 +46,7 @@ describe("protected ticket transcript page", () => {
     expect(html).toContain("&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt;");
     expect(html).not.toContain("<script>alert");
     expect(html).not.toContain("https://not-kept.example");
+    expect(html).toContain("سبب الإغلاق");
   });
 
   it("rejects malformed or unknown transcript payloads", () => {
