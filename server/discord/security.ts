@@ -49,14 +49,28 @@ export function matchesDiscordApplicationId(expected: unknown, actual: unknown):
   return isSnowflake(expected) && isSnowflake(actual) && expected === actual;
 }
 
-export function safeDiscordErrorCode(error: unknown): string {
-  if (error && typeof error === "object" && "status" in error) {
-    const status = Number((error as { status?: unknown }).status);
+function safeErrorCodeAtLevel(error: object): string | null {
+  const record = error as Record<string, unknown>;
+  if ("status" in error) {
+    const status = Number(record.status);
     if (Number.isInteger(status) && status >= 400 && status <= 599) return `discord_http_${status}`;
   }
-  if (error && typeof error === "object" && "code" in error) {
-    const code = String((error as { code?: unknown }).code);
+  if ("code" in error) {
+    const code = String(record.code);
     if (/^[A-Z0-9_]{1,40}$/.test(code)) return code.toLowerCase();
+  }
+  return null;
+}
+
+/** Returns only validated status/code identifiers; never logs exception messages, stacks, or tokens. */
+export function safeDiscordErrorCode(error: unknown): string {
+  const seen = new Set<object>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && typeof current === "object" && !seen.has(current); depth += 1) {
+    seen.add(current);
+    const safeCode = safeErrorCodeAtLevel(current);
+    if (safeCode) return safeCode;
+    current = "cause" in current ? (current as Record<string, unknown>).cause : undefined;
   }
   return "discord_operation_failed";
 }
