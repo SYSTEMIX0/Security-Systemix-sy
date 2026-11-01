@@ -156,6 +156,22 @@ async function probeDiscordGatewayTransport(timeoutMs = 8_000): Promise<GatewayT
   });
 }
 
+type BotCredentialProbeResult = "network_error" | `http_${number}`;
+
+async function probeDiscordBotCredential(token: string, timeoutMs = 8_000): Promise<BotCredentialProbeResult> {
+  try {
+    const response = await fetch("https://discord.com/api/v10/users/@me", {
+      headers: { Authorization: `Bot ${token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const result: BotCredentialProbeResult = `http_${response.status}`;
+    await response.body?.cancel().catch(() => undefined);
+    return result;
+  } catch {
+    return "network_error";
+  }
+}
+
 async function loginAndWaitForReady(bot: Client, token: string, timeoutMs = 25_000): Promise<void> {
   let resolveReady!: () => void;
   let rejectReady!: (error: Error) => void;
@@ -537,14 +553,18 @@ export async function startDiscordBot(): Promise<void> {
         runtimeState.status = "degraded";
         runtimeState.lastErrorCode = errorCode;
         logSafe("Gateway login failed", error);
+        let credentialProbeResult: BotCredentialProbeResult | null = null;
         if (!gatewayTransportProbeCompleted && errorCode === "systemix_gateway_ready_timeout") {
           gatewayTransportProbeCompleted = true;
           const probeResult = await probeDiscordGatewayTransport();
           console.warn(`[Discord] Unauthenticated Gateway transport probe: ${probeResult}`);
+          credentialProbeResult = await probeDiscordBotCredential(token);
+          console.warn(`[Discord] Bot credential validation: ${credentialProbeResult}`);
+          if (credentialProbeResult === "http_401") runtimeState.lastErrorCode = "discord_http_401";
         }
         startPromise = null;
         const message = error instanceof Error ? error.message : String(error ?? "");
-        const permanent = ["discord_http_401", "discord_http_403", "tokeninvalid"].some((code) => errorCode.includes(code)) || /4004/.test(message) || isIntentRejection(error);
+        const permanent = credentialProbeResult === "http_401" || ["discord_http_401", "discord_http_403", "tokeninvalid"].some((code) => errorCode.includes(code)) || /4004/.test(message) || isIntentRejection(error);
         if (!permanent) scheduleRetry();
         return;
       }
