@@ -139,14 +139,20 @@ async function loginAndWaitForReady(bot: Client, token: string, timeoutMs = 25_0
     if (isIntentRejection(error)) finish(error);
   };
   const onDisconnect = (event: { code: number }) => {
-    if (event.code === 4014) finish(new Error("Discord rejected privileged intents (4014)"));
-    else if (event.code === 4004) finish(new Error("Discord rejected bot authentication (4004)"));
+    if (event.code === 4014) {
+      finish(Object.assign(new Error("Discord rejected privileged intents (4014)"), { code: "SYSTEMIX_INTENT_REJECTED_4014" }));
+    } else if (event.code === 4004) {
+      finish(Object.assign(new Error("Discord rejected bot authentication (4004)"), { code: "SYSTEMIX_TOKEN_REJECTED_4004" }));
+    }
   };
 
   bot.once(Events.ClientReady, onReady);
   bot.on(Events.Error, onError);
   bot.on(Events.ShardDisconnect, onDisconnect);
-  timer = setTimeout(() => finish(new Error(`Discord Gateway READY timeout after ${timeoutMs}ms`)), timeoutMs);
+  const timeoutError = Object.assign(new Error(`Discord Gateway READY timeout after ${timeoutMs}ms`), {
+    code: "SYSTEMIX_GATEWAY_READY_TIMEOUT",
+  });
+  timer = setTimeout(() => finish(timeoutError), timeoutMs);
   timer.unref?.();
   try {
     await Promise.all([bot.login(token), ready]);
@@ -377,6 +383,9 @@ function createClient(plan: IntentPlan): Client {
   });
   bot.on(Events.ShardDisconnect, (event) => {
     const closeCode = typeof event.code === "number" ? event.code : 0;
+    if (runtimeState.status === "connecting" && !runtimeState.readyAt) {
+      console.warn(`[Discord] Gateway disconnected before READY (close_code=${closeCode})`);
+    }
     // discord.js cannot reconnect after these terminal close codes on its own.
     if ([4004, 4011, 4013, 4014].includes(closeCode)) {
       abandonTerminalClient(bot, `gateway_close_${closeCode}`, ![4004, 4014].includes(closeCode));
@@ -434,10 +443,15 @@ function createClient(plan: IntentPlan): Client {
   return bot;
 }
 
+export function gatewayRetryDelayMs(attempt: number): number {
+  const safeAttempt = Number.isFinite(attempt) ? Math.max(1, Math.floor(attempt)) : 1;
+  return Math.min(60_000, 5_000 * 2 ** (Math.min(safeAttempt, 5) - 1));
+}
+
 function scheduleRetry(): void {
-  if (retryTimer || retryCount >= 5) return;
+  if (retryTimer) return;
   retryCount += 1;
-  const delay = Math.min(60_000, 5_000 * 2 ** (retryCount - 1));
+  const delay = gatewayRetryDelayMs(retryCount);
   retryTimer = setTimeout(() => {
     retryTimer = null;
     void startDiscordBot();
