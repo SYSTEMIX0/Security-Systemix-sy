@@ -51,6 +51,7 @@ let client: Client | null = null;
 let startPromise: Promise<void> | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let retryCount = 0;
+let gatewayTransportProbeCompleted = false;
 const timers: ReturnType<typeof setInterval>[] = [];
 const commandSyncInFlight = new WeakSet<Client>();
 const commandSyncRetryAttempts = new WeakMap<Client, number>();
@@ -116,6 +117,43 @@ function isIntentRejection(error: unknown): boolean {
   const code = safeDiscordErrorCode(error);
   const message = error instanceof Error ? error.message : String(error ?? "");
   return /intent/i.test(code) || /intent/i.test(message) || /4014/.test(message);
+}
+
+type GatewayTransportProbeResult = "hello_received" | "socket_error" | "closed_before_hello" | "timeout" | "unsupported";
+
+async function probeDiscordGatewayTransport(timeoutMs = 8_000): Promise<GatewayTransportProbeResult> {
+  if (typeof WebSocket === "undefined") return "unsupported";
+  return new Promise((resolve) => {
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket("wss://gateway.discord.gg/?v=10&encoding=json");
+    } catch {
+      resolve("socket_error");
+      return;
+    }
+    let settled = false;
+    const finish = (result: GatewayTransportProbeResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeEventListener("message", onMessage);
+      socket.removeEventListener("error", onError);
+      socket.removeEventListener("close", onClose);
+      try {
+        socket.close();
+      } catch {
+        // The probe is best-effort; never expose transport exception details.
+      }
+      resolve(result);
+    };
+    const onMessage = () => finish("hello_received");
+    const onError = () => finish("socket_error");
+    const onClose = () => finish("closed_before_hello");
+    const timer = setTimeout(() => finish("timeout"), timeoutMs);
+    socket.addEventListener("message", onMessage, { once: true });
+    socket.addEventListener("error", onError, { once: true });
+    socket.addEventListener("close", onClose, { once: true });
+  });
 }
 
 async function loginAndWaitForReady(bot: Client, token: string, timeoutMs = 25_000): Promise<void> {
@@ -499,6 +537,11 @@ export async function startDiscordBot(): Promise<void> {
         runtimeState.status = "degraded";
         runtimeState.lastErrorCode = errorCode;
         logSafe("Gateway login failed", error);
+        if (!gatewayTransportProbeCompleted && errorCode === "systemix_gateway_ready_timeout") {
+          gatewayTransportProbeCompleted = true;
+          const probeResult = await probeDiscordGatewayTransport();
+          console.warn(`[Discord] Unauthenticated Gateway transport probe: ${probeResult}`);
+        }
         startPromise = null;
         const message = error instanceof Error ? error.message : String(error ?? "");
         const permanent = ["discord_http_401", "discord_http_403", "tokeninvalid"].some((code) => errorCode.includes(code)) || /4004/.test(message) || isIntentRejection(error);
